@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Sql } from "postgres";
 import * as repo from "./repository.js";
 import type { ACTIVITY_SOURCES } from "./schemas.js";
 
@@ -29,14 +29,9 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export async function awardActivity(
-  db: SupabaseClient,
-  userId: string,
-  source: ActivitySource,
-  meta: Record<string, unknown>,
-) {
+export async function awardActivity(sql: Sql, userId: string, source: ActivitySource, meta: Record<string, unknown>) {
   const reward = DEFAULT_REWARDS[source];
-  const state = await repo.getProfileGameState(db, userId);
+  const state = await repo.getProfileGameState(sql, userId);
 
   const today = todayUtc();
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
@@ -53,10 +48,10 @@ export async function awardActivity(
   const newLevel = xpToLevel(newXp);
   const newCoins = state.coins + reward.coins;
 
-  await repo.insertXpEvent(db, { userId, source, amount: reward.xp, coins: reward.coins, meta });
-  await repo.updateProfileGameState(db, userId, { xp: newXp, level: newLevel, streak, coins: newCoins, last_active_date: today });
-  await repo.upsertUserStats(db, { userId, xp: newXp, streakDays: streak, lastActivityDate: today });
-  await repo.bumpMissionProgress(db, userId, source);
+  await repo.insertXpEvent(sql, { userId, source, amount: reward.xp, coins: reward.coins, meta });
+  await repo.updateProfileGameState(sql, userId, { xp: newXp, level: newLevel, streak, coins: newCoins, last_active_date: today });
+  await repo.upsertUserStats(sql, { userId, xp: newXp, streakDays: streak, lastActivityDate: today });
+  await repo.bumpMissionProgress(sql, userId, source);
 
   return {
     xp: newXp,

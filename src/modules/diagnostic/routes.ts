@@ -6,6 +6,6 @@ import * as service from "./service.js";
 export default async function diagnosticRoutes(fastify: FastifyInstance) {
   fastify.post("/assessments/diagnostic", { preHandler: requireAuth }, async (request) => {
     const input = submitDiagnosticSchema.parse(request.body);
-    return service.submitDiagnostic(request.server.supabaseAdmin, request.userId, input);
+    return service.submitDiagnostic(request.server.sql, request.userId, input);
   });
 }

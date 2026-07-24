@@ -2,10 +2,14 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import multipart from "@fastify/multipart";
+import cookie from "@fastify/cookie";
 import { env } from "./config/env.js";
-import supabasePlugin from "./plugins/supabase.js";
+import dbPlugin from "./plugins/db.js";
 import authPlugin from "./plugins/auth.js";
+import csrfPlugin from "./plugins/csrf.js";
 import registerErrorHandler from "./plugins/error-handler.js";
+import authRoutes from "./modules/auth/routes.js";
+import usersRoutes from "./modules/users/routes.js";
 import certificatesRoutes from "./modules/certificates/routes.js";
 import examsRoutes from "./modules/exams/routes.js";
 import diagnosticRoutes from "./modules/diagnostic/routes.js";
@@ -16,7 +20,7 @@ import aiRoutes from "./modules/ai/routes.js";
 export async function buildApp() {
   const app = Fastify({
     logger: {
-      transport: process.env.NODE_ENV === "production" ? undefined : { target: "pino-pretty" },
+      transport: env.NODE_ENV === "production" ? undefined : { target: "pino-pretty" },
     },
   });
 
@@ -26,6 +30,8 @@ export async function buildApp() {
     origin: env.CORS_ALLOWED_ORIGINS.length > 0 ? env.CORS_ALLOWED_ORIGINS : false,
     credentials: true,
   });
+
+  await app.register(cookie, { secret: env.JWT_SECRET });
 
   await app.register(rateLimit, {
     global: true,
@@ -37,12 +43,15 @@ export async function buildApp() {
     keyGenerator: (request) => request.userId || request.ip,
   });
 
-  await app.register(supabasePlugin);
+  await app.register(dbPlugin);
   await app.register(authPlugin);
+  await app.register(csrfPlugin);
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
 
   app.get("/v1/health", async () => ({ status: "ok" }));
 
+  await app.register(authRoutes, { prefix: "/v1" });
+  await app.register(usersRoutes, { prefix: "/v1" });
   await app.register(certificatesRoutes, { prefix: "/v1" });
   await app.register(examsRoutes, { prefix: "/v1" });
   await app.register(diagnosticRoutes, { prefix: "/v1" });

@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Sql } from "postgres";
 import { env } from "../../config/env.js";
 import * as repo from "./repository.js";
 
@@ -12,10 +12,11 @@ class NotFoundError extends Error {
 export const listPlans = repo.listActivePlans;
 
 export function createCheckoutSession(
-  userDb: SupabaseClient,
+  sql: Sql,
+  userId: string,
   input: { planId: string; method: string; phone?: string; provider?: string },
 ) {
-  return repo.createSubscriptionOrder(userDb, input);
+  return repo.createSubscriptionOrder(sql, userId, input);
 }
 
 export const listMyPayments = repo.listMyPayments;
@@ -27,12 +28,12 @@ export const listMySubscriptions = repo.listMySubscriptions;
  * SANDBOX_PAYMENTS_ENABLED — the old flow's only real protection was an
  * admin-only RLS UPDATE policy on `payments`, invisible in the TS handler.
  */
-export async function simulatePayment(db: SupabaseClient, paymentId: string) {
+export async function simulatePayment(sql: Sql, paymentId: string) {
   if (!env.SANDBOX_PAYMENTS_ENABLED) {
     throw new ForbiddenError("Sandbox payment simulation is disabled");
   }
-  const payment = await repo.getPaymentById(db, paymentId);
+  const payment = await repo.getPaymentById(sql, paymentId);
   if (!payment) throw new NotFoundError("Payment not found");
   if (payment.status === "paid") return payment;
-  return repo.markPaymentSimulatedPaid(db, paymentId);
+  return repo.markPaymentSimulatedPaid(sql, paymentId);
 }

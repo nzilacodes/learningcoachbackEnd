@@ -1,49 +1,40 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Sql } from "postgres";
 import type { CefrLevel } from "../../lib/cefr.js";
 
 export type ExamQuestion = { q: string; opts: string[]; a: number };
 
-export async function getExam(db: SupabaseClient, level: CefrLevel) {
-  const { data, error } = await db.from("level_exams").select("level, title, questions").eq("level", level).single();
-  if (error) throw error;
-  return data as { level: CefrLevel; title: string; questions: ExamQuestion[] };
+export async function getExam(sql: Sql, level: CefrLevel) {
+  const rows = await sql<{ level: CefrLevel; title: string; questions: ExamQuestion[] }[]>`
+    SELECT level, title, questions FROM public.level_exams WHERE level = ${level}
+  `;
+  if (!rows[0]) throw new Error(`No exam configured for level ${level}`);
+  return rows[0];
 }
 
-export async function getMinExamScore(db: SupabaseClient): Promise<number> {
-  const { data, error } = await db.from("app_settings").select("min_exam_score").eq("id", true).single();
-  if (error) throw error;
-  return data.min_exam_score as number;
+export async function getMinExamScore(sql: Sql): Promise<number> {
+  const rows = await sql<{ min_exam_score: number }[]>`SELECT min_exam_score FROM public.app_settings WHERE id = true`;
+  return rows[0]?.min_exam_score ?? 70;
 }
 
-export async function getProfileCefrLevel(db: SupabaseClient, userId: string): Promise<CefrLevel | null> {
-  const { data, error } = await db.from("profiles").select("cefr_level").eq("id", userId).maybeSingle();
-  if (error) throw error;
-  return (data?.cefr_level as CefrLevel | null) ?? null;
+export async function getProfileCefrLevel(sql: Sql, userId: string): Promise<CefrLevel | null> {
+  const rows = await sql<{ cefr_level: CefrLevel | null }[]>`SELECT cefr_level FROM public.profiles WHERE id = ${userId}`;
+  return rows[0]?.cefr_level ?? null;
 }
 
-export async function hasPassedAttempt(db: SupabaseClient, userId: string, level: CefrLevel): Promise<boolean> {
-  const { data, error } = await db
-    .from("level_exam_attempts")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("level", level)
-    .eq("passed", true)
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return !!data;
+export async function hasPassedAttempt(sql: Sql, userId: string, level: CefrLevel): Promise<boolean> {
+  const rows = await sql`
+    SELECT id FROM public.level_exam_attempts
+    WHERE user_id = ${userId} AND level = ${level} AND passed = true LIMIT 1
+  `;
+  return rows.length > 0;
 }
 
 export async function insertAttempt(
-  db: SupabaseClient,
+  sql: Sql,
   params: { userId: string; level: CefrLevel; score: number; passed: boolean; answers: Record<string, number> },
 ) {
-  const { error } = await db.from("level_exam_attempts").insert({
-    user_id: params.userId,
-    level: params.level,
-    score: params.score,
-    passed: params.passed,
-    answers: params.answers,
-  });
-  if (error) throw error;
+  await sql`
+    INSERT INTO public.level_exam_attempts (user_id, level, score, passed, answers)
+    VALUES (${params.userId}, ${params.level}, ${params.score}, ${params.passed}, ${sql.json(params.answers)})
+  `;
 }

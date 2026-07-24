@@ -1,8 +1,18 @@
 import { env } from "../config/env.js";
 
-export const AI_CHAT_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-export const AI_TTS_URL = "https://ai.gateway.lovable.dev/v1/audio/speech";
-export const AI_STT_URL = "https://ai.gateway.lovable.dev/v1/audio/transcriptions";
+export const AI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
+export const AI_TTS_URL = "https://api.openai.com/v1/audio/speech";
+export const AI_STT_URL = "https://api.openai.com/v1/audio/transcriptions";
+export const CHAT_MODEL = "gpt-4o-mini";
+export const TTS_MODEL = "tts-1";
+export const STT_MODEL = "whisper-1";
+
+export class AiNotConfiguredError extends Error {
+  statusCode = 503;
+  constructor() {
+    super("AI features are not configured (OPENAI_API_KEY is unset)");
+  }
+}
 
 class UpstreamAiError extends Error {
   statusCode: number;
@@ -12,11 +22,17 @@ class UpstreamAiError extends Error {
   }
 }
 
+export function requireOpenAiKey(): string {
+  if (!env.OPENAI_API_KEY) throw new AiNotConfiguredError();
+  return env.OPENAI_API_KEY;
+}
+
 export async function callChatCompletion(body: Record<string, unknown>): Promise<string> {
+  const apiKey = requireOpenAiKey();
   const res = await fetch(AI_CHAT_URL, {
     method: "POST",
-    headers: { Authorization: `Bearer ${env.LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: CHAT_MODEL, ...body }),
   });
   if (!res.ok) {
     const msg = await res.text().catch(() => "");

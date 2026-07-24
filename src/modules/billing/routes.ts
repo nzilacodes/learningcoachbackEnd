@@ -6,24 +6,21 @@ import * as service from "./service.js";
 
 export default async function billingRoutes(fastify: FastifyInstance) {
   fastify.get("/plans", async (request) => {
-    return service.listPlans(request.server.supabaseAdmin);
+    return service.listPlans(request.server.sql);
   });
 
   fastify.post("/checkout-sessions", { preHandler: requireAuth }, async (request, reply) => {
     const input = createCheckoutSessionSchema.parse(request.body);
-    const userDb = request.server.createUserClient(request.accessToken);
-    const session = await service.createCheckoutSession(userDb, input);
+    const session = await service.createCheckoutSession(request.server.sql, request.userId, input);
     return reply.status(201).send(session);
   });
 
   fastify.get("/me/payments", { preHandler: requireAuth }, async (request) => {
-    const userDb = request.server.createUserClient(request.accessToken);
-    return service.listMyPayments(userDb, request.userId);
+    return service.listMyPayments(request.server.sql, request.userId);
   });
 
   fastify.get("/me/subscriptions", { preHandler: requireAuth }, async (request) => {
-    const userDb = request.server.createUserClient(request.accessToken);
-    return service.listMySubscriptions(userDb, request.userId);
+    return service.listMySubscriptions(request.server.sql, request.userId);
   });
 
   fastify.post(
@@ -31,7 +28,7 @@ export default async function billingRoutes(fastify: FastifyInstance) {
     { preHandler: [requireAuth, requireRole("admin")] },
     async (request) => {
       const { id } = paymentIdParamsSchema.parse(request.params);
-      return service.simulatePayment(request.server.supabaseAdmin, id);
+      return service.simulatePayment(request.server.sql, id);
     },
   );
 }

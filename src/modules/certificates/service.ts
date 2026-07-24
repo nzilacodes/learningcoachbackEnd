@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Sql } from "postgres";
 import type { CefrLevel } from "../../lib/cefr.js";
 import * as repo from "./repository.js";
 
@@ -14,20 +14,20 @@ class NotEligibleError extends Error {
  * issue_certificate RPC, which took `level`/`score` straight from the caller.
  */
 export async function issueCertificate(
-  db: SupabaseClient,
+  sql: Sql,
   userId: string,
   input: { level: CefrLevel; courseId?: string; courseTitle?: string },
 ) {
-  const existing = await repo.findExistingCertificate(db, userId, input.level);
+  const existing = await repo.findExistingCertificate(sql, userId, input.level);
   if (existing) return existing;
 
-  const passedAttempt = await repo.findPassedExamAttempt(db, userId, input.level);
+  const passedAttempt = await repo.findPassedExamAttempt(sql, userId, input.level);
   if (!passedAttempt) {
     throw new NotEligibleError(`No passed exam on record for level ${input.level}`);
   }
 
-  const fullName = await repo.getProfileName(db, userId);
-  return repo.insertCertificate(db, {
+  const fullName = await repo.getProfileName(sql, userId);
+  return repo.insertCertificate(sql, {
     userId,
     level: input.level,
     score: passedAttempt.score,
@@ -37,10 +37,10 @@ export async function issueCertificate(
   });
 }
 
-export async function listMyCertificates(db: SupabaseClient, userId: string) {
-  return repo.listCertificatesForUser(db, userId);
+export async function listMyCertificates(sql: Sql, userId: string) {
+  return repo.listCertificatesForUser(sql, userId);
 }
 
-export async function verifyCertificate(db: SupabaseClient, code: string) {
-  return repo.findCertificateByCode(db, code);
+export async function verifyCertificate(sql: Sql, code: string) {
+  return repo.findCertificateByCode(sql, code);
 }

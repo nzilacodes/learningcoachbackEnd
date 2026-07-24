@@ -1,73 +1,47 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Sql } from "postgres";
 import type { CefrLevel } from "../../lib/cefr.js";
 
-export async function findPassedExamAttempt(db: SupabaseClient, userId: string, level: CefrLevel) {
-  const { data, error } = await db
-    .from("level_exam_attempts")
-    .select("score")
-    .eq("user_id", userId)
-    .eq("level", level)
-    .eq("passed", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return data as { score: number } | null;
+export async function findPassedExamAttempt(sql: Sql, userId: string, level: CefrLevel) {
+  const rows = await sql<{ score: number }[]>`
+    SELECT score FROM public.level_exam_attempts
+    WHERE user_id = ${userId} AND level = ${level} AND passed = true
+    ORDER BY created_at DESC LIMIT 1
+  `;
+  return rows[0] ?? null;
 }
 
-export async function findExistingCertificate(db: SupabaseClient, userId: string, level: CefrLevel) {
-  const { data, error } = await db
-    .from("certificates")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("level", level)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
+export async function findExistingCertificate(sql: Sql, userId: string, level: CefrLevel) {
+  const rows = await sql`SELECT * FROM public.certificates WHERE user_id = ${userId} AND level = ${level}`;
+  return rows[0] ?? null;
 }
 
-export async function getProfileName(db: SupabaseClient, userId: string) {
-  const { data, error } = await db.from("profiles").select("full_name, email").eq("id", userId).maybeSingle();
-  if (error) throw error;
-  return data?.full_name ?? data?.email ?? "Learner";
+export async function getProfileName(sql: Sql, userId: string) {
+  const rows = await sql<{ full_name: string | null; email: string | null }[]>`
+    SELECT full_name, email FROM public.profiles WHERE id = ${userId}
+  `;
+  return rows[0]?.full_name ?? rows[0]?.email ?? "Learner";
 }
 
 export async function insertCertificate(
-  db: SupabaseClient,
+  sql: Sql,
   params: { userId: string; level: CefrLevel; score: number; courseId?: string; courseTitle?: string; fullName: string },
 ) {
-  const { data, error } = await db
-    .from("certificates")
-    .insert({
-      user_id: params.userId,
-      level: params.level,
-      score: params.score,
-      course_id: params.courseId ?? null,
-      course_title: params.courseTitle ?? null,
-      full_name: params.fullName,
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  const [row] = await sql`
+    INSERT INTO public.certificates (user_id, level, score, course_id, course_title, full_name)
+    VALUES (${params.userId}, ${params.level}, ${params.score}, ${params.courseId ?? null}, ${params.courseTitle ?? null}, ${params.fullName})
+    RETURNING *
+  `;
+  return row;
 }
 
-export async function listCertificatesForUser(db: SupabaseClient, userId: string) {
-  const { data, error } = await db
-    .from("certificates")
-    .select("*")
-    .eq("user_id", userId)
-    .order("issued_at", { ascending: false });
-  if (error) throw error;
-  return data ?? [];
+export async function listCertificatesForUser(sql: Sql, userId: string) {
+  return sql`SELECT * FROM public.certificates WHERE user_id = ${userId} ORDER BY issued_at DESC`;
 }
 
-export async function findCertificateByCode(db: SupabaseClient, code: string) {
-  const { data, error } = await db
-    .from("certificates")
-    .select("verification_code, full_name, level, course_title, score, issued_at, signature")
-    .eq("verification_code", code)
-    .maybeSingle();
-  if (error) throw error;
-  return data ? { ...data, valid: true } : null;
+export async function findCertificateByCode(sql: Sql, code: string) {
+  const rows = await sql`
+    SELECT verification_code, full_name, level, course_title, score, issued_at, signature
+    FROM public.certificates WHERE verification_code = ${code}
+  `;
+  return rows[0] ? { ...rows[0], valid: true } : null;
 }

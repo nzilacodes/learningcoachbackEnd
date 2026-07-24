@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Sql } from "postgres";
 
 export type ProfileGameState = {
   xp: number;
@@ -8,89 +8,68 @@ export type ProfileGameState = {
   last_active_date: string | null;
 };
 
-export async function getProfileGameState(db: SupabaseClient, userId: string): Promise<ProfileGameState> {
-  const { data, error } = await db
-    .from("profiles")
-    .select("xp, level, streak, coins, last_active_date")
-    .eq("id", userId)
-    .maybeSingle();
-  if (error) throw error;
-  return {
-    xp: data?.xp ?? 0,
-    level: data?.level ?? 1,
-    streak: data?.streak ?? 0,
-    coins: data?.coins ?? 0,
-    last_active_date: data?.last_active_date ?? null,
-  };
+export async function getProfileGameState(sql: Sql, userId: string): Promise<ProfileGameState> {
+  const rows = await sql<ProfileGameState[]>`
+    SELECT xp, level, streak, coins, last_active_date::text FROM public.profiles WHERE id = ${userId}
+  `;
+  return rows[0] ?? { xp: 0, level: 1, streak: 0, coins: 0, last_active_date: null };
 }
 
 export async function updateProfileGameState(
-  db: SupabaseClient,
+  sql: Sql,
   userId: string,
   patch: { xp: number; level: number; streak: number; coins: number; last_active_date: string },
 ) {
-  const { error } = await db.from("profiles").update(patch).eq("id", userId);
-  if (error) throw error;
+  await sql`
+    UPDATE public.profiles
+    SET xp = ${patch.xp}, level = ${patch.level}, streak = ${patch.streak}, coins = ${patch.coins}, last_active_date = ${patch.last_active_date}
+    WHERE id = ${userId}
+  `;
 }
 
 export async function upsertUserStats(
-  db: SupabaseClient,
+  sql: Sql,
   params: { userId: string; xp: number; streakDays: number; lastActivityDate: string },
 ) {
-  const { error } = await db.from("user_stats").upsert(
-    {
-      user_id: params.userId,
-      xp: params.xp,
-      streak_days: params.streakDays,
-      last_activity_date: params.lastActivityDate,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
-  if (error) throw error;
+  await sql`
+    INSERT INTO public.user_stats (user_id, xp, streak_days, last_activity_date, updated_at)
+    VALUES (${params.userId}, ${params.xp}, ${params.streakDays}, ${params.lastActivityDate}, now())
+    ON CONFLICT (user_id) DO UPDATE SET
+      xp = EXCLUDED.xp, streak_days = EXCLUDED.streak_days,
+      last_activity_date = EXCLUDED.last_activity_date, updated_at = now()
+  `;
 }
 
 export async function insertXpEvent(
-  db: SupabaseClient,
+  sql: Sql,
   params: { userId: string; source: string; amount: number; coins: number; meta: Record<string, unknown> },
 ) {
-  const { error } = await db.from("xp_events").insert({
-    user_id: params.userId,
-    source: params.source,
-    amount: params.amount,
-    coins: params.coins,
-    meta: params.meta,
-  });
-  if (error) throw error;
+  await sql`
+    INSERT INTO public.xp_events (user_id, source, amount, coins, meta)
+    VALUES (${params.userId}, ${params.source}, ${params.amount}, ${params.coins}, ${JSON.stringify(params.meta)}::jsonb)
+  `;
 }
 
-export async function bumpMissionProgress(db: SupabaseClient, userId: string, actionType: string) {
-  const { data: missions, error: mErr } = await db
-    .from("missions")
-    .select("id, target")
-    .eq("action_type", actionType);
-  if (mErr) throw mErr;
-  if (!missions || missions.length === 0) return;
+export async function bumpMissionProgress(sql: Sql, userId: string, actionType: string) {
+  const missions = await sql<{ id: string; target: number }[]>`
+    SELECT id, target FROM public.missions WHERE action_type = ${actionType}
+  `;
+  if (missions.length === 0) return;
 
   for (const mission of missions) {
-    const { data: um, error: umErr } = await db
-      .from("user_missions")
-      .select("id, progress, completed_at")
-      .eq("user_id", userId)
-      .eq("mission_id", mission.id)
-      .is("completed_at", null)
-      .maybeSingle();
-    if (umErr) throw umErr;
+    const rows = await sql<{ id: string; progress: number }[]>`
+      SELECT id, progress FROM public.user_missions
+      WHERE user_id = ${userId} AND mission_id = ${mission.id} AND completed_at IS NULL
+    `;
+    const um = rows[0];
     if (!um) continue;
 
     const nextProgress = Math.min(mission.target, um.progress + 1);
-    const { error: updErr } = await db
-      .from("user_missions")
-      .update({
-        progress: nextProgress,
-        completed_at: nextProgress >= mission.target ? new Date().toISOString() : null,
-      })
-      .eq("id", um.id);
-    if (updErr) throw updErr;
+    await sql`
+      UPDATE public.user_missions
+      SET progress = ${nextProgress},
+          completed_at = ${nextProgress >= mission.target ? new Date() : null}
+      WHERE id = ${um.id}
+    `;
   }
 }

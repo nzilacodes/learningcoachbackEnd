@@ -1,0 +1,44 @@
+name: Deploy backend
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm prune --omit=dev
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload release
+        env:
+          RELEASE: ${{ github.sha }}
+          APP_DIR: /home/learningcoach/apps/learningcoachbackend
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
+          $SSH "mkdir -p $APP_DIR/releases/$RELEASE"
+          rsync -az -e "ssh -i ~/.ssh/deploy_key" dist package.json package-lock.json node_modules "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:$APP_DIR/releases/$RELEASE/"
+
+      - name: Activate release and restart service
+        env:
+          RELEASE: ${{ github.sha }}
+          APP_DIR: /home/learningcoach/apps/learningcoachbackend
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
+          $SSH "ln -sfn $APP_DIR/releases/$RELEASE $APP_DIR/current && systemctl --user restart learningcoachbackend.service && sleep 2 && systemctl --user is-active learningcoachbackend.service"
+          $SSH "ls -1dt $APP_DIR/releases/*/ | tail -n +6 | xargs -r rm -rf"

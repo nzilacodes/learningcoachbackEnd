@@ -1,13 +1,14 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Sql } from "postgres";
 
-export async function getProfileOnboardingStatus(db: SupabaseClient, userId: string) {
-  const { data, error } = await db.from("profiles").select("onboarding_status").eq("id", userId).maybeSingle();
-  if (error) throw error;
-  return data?.onboarding_status as string | null | undefined;
+export async function getProfileOnboardingStatus(sql: Sql, userId: string) {
+  const rows = await sql<{ onboarding_status: string | null }[]>`
+    SELECT onboarding_status FROM public.profiles WHERE id = ${userId}
+  `;
+  return rows[0]?.onboarding_status ?? null;
 }
 
 export async function insertDiagnosticResult(
-  db: SupabaseClient,
+  sql: Sql,
   params: {
     userId: string;
     cefrLevel: string;
@@ -28,29 +29,24 @@ export async function insertDiagnosticResult(
     rawAnswers: unknown;
   },
 ) {
-  const { error } = await db.from("diagnostic_results").insert({
-    user_id: params.userId,
-    cefr_level: params.cefrLevel,
-    overall_score: params.scores.overall,
-    grammar_score: params.scores.grammar,
-    vocabulary_score: params.scores.vocabulary,
-    reading_score: params.scores.reading,
-    listening_score: params.scores.listening,
-    writing_score: params.scores.writing,
-    speaking_score: params.scores.speaking,
-    pronunciation_score: params.scores.pronunciation,
-    strengths: params.strengths,
-    weaknesses: params.weaknesses,
-    feedback: params.feedback,
-    learning_plan: params.learningPlan,
-    raw_answers: params.rawAnswers,
-  });
-  if (error) throw error;
+  await sql`
+    INSERT INTO public.diagnostic_results (
+      user_id, cefr_level, overall_score, grammar_score, vocabulary_score,
+      reading_score, listening_score, writing_score, speaking_score, pronunciation_score,
+      strengths, weaknesses, feedback, learning_plan, raw_answers
+    ) VALUES (
+      ${params.userId}, ${params.cefrLevel}, ${params.scores.overall}, ${params.scores.grammar}, ${params.scores.vocabulary},
+      ${params.scores.reading}, ${params.scores.listening}, ${params.scores.writing}, ${params.scores.speaking}, ${params.scores.pronunciation},
+      ${sql.json(params.strengths)}, ${sql.json(params.weaknesses)}, ${params.feedback},
+      ${JSON.stringify(params.learningPlan)}::jsonb, ${JSON.stringify(params.rawAnswers)}::jsonb
+    )
+  `;
 }
 
-export async function updateProfileAfterDiagnostic(db: SupabaseClient, userId: string, cefrLevel: string, advanceOnboarding: boolean) {
-  const patch: { cefr_level: string; onboarding_status?: string } = { cefr_level: cefrLevel };
-  if (advanceOnboarding) patch.onboarding_status = "plan";
-  const { error } = await db.from("profiles").update(patch).eq("id", userId);
-  if (error) throw error;
+export async function updateProfileAfterDiagnostic(sql: Sql, userId: string, cefrLevel: string, advanceOnboarding: boolean) {
+  if (advanceOnboarding) {
+    await sql`UPDATE public.profiles SET cefr_level = ${cefrLevel}, onboarding_status = 'plan' WHERE id = ${userId}`;
+  } else {
+    await sql`UPDATE public.profiles SET cefr_level = ${cefrLevel} WHERE id = ${userId}`;
+  }
 }

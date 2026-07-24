@@ -37,7 +37,7 @@ export default async function aiRoutes(fastify: FastifyInstance) {
     { preHandler: requireAuth, config: { rateLimit: AI_RATE_LIMIT } },
     async (request) => {
       const { word } = dictionaryParamsSchema.parse(request.params);
-      return service.getWordData(request.server.supabaseAdmin, word);
+      return service.getWordData(request.server.sql, word);
     },
   );
 }

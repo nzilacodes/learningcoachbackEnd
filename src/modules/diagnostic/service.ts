@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Sql } from "postgres";
 import { callChatCompletion, clampScore, similarity } from "../../lib/ai-gateway.js";
 import * as repo from "./repository.js";
 import {
@@ -41,7 +41,7 @@ Respond with a SINGLE JSON object matching this schema exactly, no extra keys or
   "learning_plan": [{"week": number, "title": string, "focus_skill": string, "goals": string[], "estimated_minutes": number}]
 }`;
 
-export async function submitDiagnostic(db: SupabaseClient, userId: string, input: SubmitInput) {
+export async function submitDiagnostic(sql: Sql, userId: string, input: SubmitInput) {
   const grammar = scoreMcq(GRAMMAR, input.grammarAnswers);
   const vocabulary = scoreMcq(VOCABULARY, input.vocabAnswers);
   const reading = scoreMcq(READING, input.readingAnswers);
@@ -94,7 +94,7 @@ export async function submitDiagnostic(db: SupabaseClient, userId: string, input
   const feedback = parsed.feedback ?? "";
   const learningPlan = Array.isArray(parsed.learning_plan) ? parsed.learning_plan.slice(0, 8) : [];
 
-  await repo.insertDiagnosticResult(db, {
+  await repo.insertDiagnosticResult(sql, {
     userId,
     cefrLevel,
     scores,
@@ -113,8 +113,8 @@ export async function submitDiagnostic(db: SupabaseClient, userId: string, input
     },
   });
 
-  const onboardingStatus = await repo.getProfileOnboardingStatus(db, userId);
-  await repo.updateProfileAfterDiagnostic(db, userId, cefrLevel, onboardingStatus === "placement");
+  const onboardingStatus = await repo.getProfileOnboardingStatus(sql, userId);
+  await repo.updateProfileAfterDiagnostic(sql, userId, cefrLevel, onboardingStatus === "placement");
 
   return { scores, cefr_level: cefrLevel, strengths, weaknesses, feedback, learning_plan: learningPlan };
 }
