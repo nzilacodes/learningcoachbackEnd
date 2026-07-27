@@ -1,4 +1,13 @@
+import "dotenv/config";
 import { z } from "zod";
+
+// A blank `KEY=` line in a real .env file loads as an empty string, not
+// undefined — without this, every "optional" field below would reject a
+// blank line instead of treating it as unset.
+const optionalString = z.preprocess((v) => (v === "" ? undefined : v), z.string().optional());
+const optionalNonEmptyString = z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional());
+const optionalNumber = z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().positive().optional());
+const optionalBoolString = z.preprocess((v) => (v === "" ? undefined : v), z.enum(["true", "false"]).optional());
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
@@ -24,9 +33,9 @@ const envSchema = z.object({
   // Cookie-based sessions. In production, deploying the frontend and backend
   // under the same parent domain (app.example.com / api.example.com) lets
   // COOKIE_SAMESITE stay "lax"; separate registrable domains need "none" (+ HTTPS).
-  COOKIE_DOMAIN: z.string().optional(),
+  COOKIE_DOMAIN: optionalString,
   // Left unset, defaults to true in production and false in development (see below).
-  COOKIE_SECURE: z.enum(["true", "false"]).optional(),
+  COOKIE_SECURE: optionalBoolString,
   COOKIE_SAMESITE: z.enum(["lax", "strict", "none"]).default("lax"),
 
   CORS_ALLOWED_ORIGINS: z
@@ -41,14 +50,14 @@ const envSchema = z.object({
   // AI features (TTS/STT/dictionary/diagnostic grading) are optional — the app
   // boots and everything else works without this; AI-dependent endpoints return
   // a clear "not configured" error instead if it's unset.
-  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_API_KEY: optionalNonEmptyString,
 
   // Mailer is optional too — with nothing configured, password-reset emails are
   // logged to the console (fine for dev), a real SMTP transport is used once set.
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().int().positive().optional(),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
+  SMTP_HOST: optionalString,
+  SMTP_PORT: optionalNumber,
+  SMTP_USER: optionalString,
+  SMTP_PASS: optionalString,
   MAIL_FROM: z.string().default("Learning Coach <no-reply@learningcoach.local>"),
 });
 

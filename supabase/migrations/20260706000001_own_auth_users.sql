@@ -70,6 +70,9 @@ BEGIN
       ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
     WHERE con.contype = 'f'
       AND con.confrelid = 'auth.users'::regclass
+      -- Only our own tables — Supabase's own auth.identities also has a FK to
+      -- auth.users, and this role doesn't own (and shouldn't alter) that one.
+      AND con.connamespace = 'public'::regnamespace
   LOOP
     del_action := CASE r.delete_action
       WHEN 'c' THEN 'CASCADE'
