@@ -34,11 +34,39 @@ jobs:
           $SSH "mkdir -p $APP_DIR/releases/$RELEASE"
           rsync -az -e "ssh -i ~/.ssh/deploy_key" dist package.json package-lock.json node_modules "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:$APP_DIR/releases/$RELEASE/"
 
-      - name: Activate release and restart service
+      - name: Activate release, health-check, and roll back on failure
         env:
           RELEASE: ${{ github.sha }}
           APP_DIR: /home/learningcoach/apps/learningcoachbackend
+          SERVICE: learningcoachbackend.service
         run: |
           SSH="ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
-          $SSH "ln -sfn $APP_DIR/releases/$RELEASE $APP_DIR/current && systemctl --user restart learningcoachbackend.service && sleep 2 && systemctl --user is-active learningcoachbackend.service"
+
+          PREVIOUS=$($SSH "readlink $APP_DIR/current || true")
+          echo "Previous release: ${PREVIOUS:-none}"
+
+          $SSH "ln -sfn $APP_DIR/releases/$RELEASE $APP_DIR/current && systemctl --user restart $SERVICE"
+
+          HEALTHY=""
+          for i in $(seq 1 15); do
+            sleep 2
+            if $SSH "systemctl --user is-active --quiet $SERVICE"; then
+              HEALTHY="1"
+              break
+            fi
+          done
+
+          if [ -z "$HEALTHY" ]; then
+            echo "::error::$SERVICE did not become active after deploying $RELEASE — rolling back"
+            $SSH "systemctl --user status $SERVICE --no-pager -l || true"
+            $SSH "tail -n 100 $APP_DIR/shared/logs/current.log || true"
+
+            if [ -n "$PREVIOUS" ]; then
+              echo "Rolling back to $PREVIOUS"
+              $SSH "ln -sfn $PREVIOUS $APP_DIR/current && systemctl --user restart $SERVICE"
+            fi
+            exit 1
+          fi
+
+          echo "$SERVICE is active on release $RELEASE"
           $SSH "ls -1dt $APP_DIR/releases/*/ | tail -n +6 | xargs -r rm -rf"
