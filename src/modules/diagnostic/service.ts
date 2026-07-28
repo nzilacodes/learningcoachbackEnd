@@ -118,3 +118,26 @@ export async function submitDiagnostic(sql: Sql, userId: string, input: SubmitIn
 
   return { scores, cefr_level: cefrLevel, strengths, weaknesses, feedback, learning_plan: learningPlan };
 }
+
+export async function getLatestResult(sql: Sql, userId: string) {
+  const row = await repo.getLatestDiagnosticResult(sql, userId);
+  if (!row) return null;
+  return {
+    scores: {
+      grammar: row.grammar_score,
+      vocabulary: row.vocabulary_score,
+      reading: row.reading_score,
+      listening: row.listening_score,
+      writing: row.writing_score,
+      speaking: row.speaking_score,
+      pronunciation: row.pronunciation_score,
+      overall: row.overall_score,
+    },
+    cefr_level: row.cefr_level,
+    strengths: row.strengths,
+    weaknesses: row.weaknesses,
+    feedback: row.feedback,
+    learning_plan: row.learning_plan,
+    created_at: row.created_at,
+  };
+}

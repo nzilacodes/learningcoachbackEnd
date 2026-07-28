@@ -8,4 +8,8 @@ export default async function diagnosticRoutes(fastify: FastifyInstance) {
     const input = submitDiagnosticSchema.parse(request.body);
     return service.submitDiagnostic(request.server.sql, request.userId, input);
   });
+
+  fastify.get("/me/diagnostic-result", { preHandler: requireAuth }, async (request) => {
+    return service.getLatestResult(request.server.sql, request.userId);
+  });
 }

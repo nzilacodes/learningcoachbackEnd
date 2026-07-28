@@ -43,6 +43,36 @@ export async function insertDiagnosticResult(
   `;
 }
 
+export type DiagnosticResultRow = {
+  cefr_level: string;
+  overall_score: number;
+  grammar_score: number;
+  vocabulary_score: number;
+  reading_score: number;
+  listening_score: number;
+  writing_score: number;
+  speaking_score: number;
+  pronunciation_score: number;
+  strengths: string[];
+  weaknesses: string[];
+  feedback: string;
+  learning_plan: unknown;
+  created_at: Date;
+};
+
+export async function getLatestDiagnosticResult(sql: Sql, userId: string): Promise<DiagnosticResultRow | null> {
+  const rows = await sql<DiagnosticResultRow[]>`
+    SELECT cefr_level, overall_score, grammar_score, vocabulary_score, reading_score,
+           listening_score, writing_score, speaking_score, pronunciation_score,
+           strengths, weaknesses, feedback, learning_plan, created_at
+    FROM public.diagnostic_results
+    WHERE user_id = ${userId}
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
 export async function updateProfileAfterDiagnostic(sql: Sql, userId: string, cefrLevel: string, advanceOnboarding: boolean) {
   if (advanceOnboarding) {
     await sql`UPDATE public.profiles SET cefr_level = ${cefrLevel}, onboarding_status = 'plan' WHERE id = ${userId}`;
