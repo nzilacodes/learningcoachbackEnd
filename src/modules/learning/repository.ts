@@ -19,13 +19,16 @@ export async function getProgress(sql: Sql, userId: string) {
   `;
 }
 
-export type StudyStats = { streak_days: number; last_activity_date: string | null };
+export type StudyStats = { streak_days: number; last_activity_date: string | null; xp: number };
 
 export async function getStudyStats(sql: Sql, userId: string): Promise<StudyStats> {
   const rows = await sql<StudyStats[]>`
-    SELECT streak_days, last_activity_date FROM public.user_stats WHERE user_id = ${userId}
+    SELECT COALESCE(us.streak_days, 0) AS streak_days, us.last_activity_date, COALESCE(p.xp, 0) AS xp
+    FROM public.profiles p
+    LEFT JOIN public.user_stats us ON us.user_id = p.id
+    WHERE p.id = ${userId}
   `;
-  return rows[0] ?? { streak_days: 0, last_activity_date: null };
+  return rows[0] ?? { streak_days: 0, last_activity_date: null, xp: 0 };
 }
 
 export async function getStudySessions(sql: Sql, userId: string, sinceDay: string) {

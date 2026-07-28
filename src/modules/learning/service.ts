@@ -14,7 +14,7 @@ export const getProgress = repo.getProgress;
 
 export async function getStudyStats(sql: Sql, userId: string) {
   const stats = await repo.getStudyStats(sql, userId);
-  return { streakDays: stats.streak_days, lastActivityDate: stats.last_activity_date };
+  return { streakDays: stats.streak_days, lastActivityDate: stats.last_activity_date, xp: stats.xp };
 }
 
 export async function getWeeklyStudy(sql: Sql, userId: string, days: number) {
