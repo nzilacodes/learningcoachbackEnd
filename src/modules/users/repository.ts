@@ -38,17 +38,40 @@ export async function getUserDetail(sql: Sql, id: string) {
   return rows[0] ?? null;
 }
 
-export async function updateProfile(
-  sql: Sql,
-  id: string,
-  patch: { fullName?: string; phone?: string; country?: string },
-) {
+export type ProfilePatch = {
+  fullName?: string;
+  phone?: string;
+  country?: string;
+  age?: number;
+  nativeLanguage?: string;
+  learningGoal?: string;
+  interests?: string[];
+  avatarUrl?: string;
+  demoCompleted?: boolean;
+  selectedPlan?: string;
+  onboardingStatus?: string;
+};
+
+const PROFILE_COLUMN_MAP: Record<keyof ProfilePatch, string> = {
+  fullName: "full_name",
+  phone: "phone",
+  country: "country",
+  age: "age",
+  nativeLanguage: "native_language",
+  learningGoal: "learning_goal",
+  interests: "interests",
+  avatarUrl: "avatar_url",
+  demoCompleted: "demo_completed",
+  selectedPlan: "selected_plan",
+  onboardingStatus: "onboarding_status",
+};
+
+export async function updateProfile(sql: Sql, id: string, patch: ProfilePatch) {
   const fields = Object.entries(patch).filter(([, v]) => v !== undefined);
   if (fields.length === 0) return;
-  const columnMap: Record<string, string> = { fullName: "full_name", phone: "phone", country: "country" };
   await sql`
     UPDATE public.profiles SET ${sql(
-      Object.fromEntries(fields.map(([k, v]) => [columnMap[k]!, v])),
+      Object.fromEntries(fields.map(([k, v]) => [PROFILE_COLUMN_MAP[k as keyof ProfilePatch], v])),
     )}
     WHERE id = ${id}
   `;

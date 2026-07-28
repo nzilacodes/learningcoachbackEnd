@@ -1,5 +1,6 @@
 import type { Sql } from "postgres";
 import * as repo from "./repository.js";
+import { getMe } from "../auth/service.js";
 
 class NotFoundError extends Error {
   statusCode = 404;
@@ -26,9 +27,11 @@ export async function updateUser(
   return getUser(sql, id);
 }
 
-export async function updateMe(sql: Sql, id: string, patch: { fullName?: string; phone?: string; country?: string }) {
+export async function updateMe(sql: Sql, id: string, patch: repo.ProfilePatch) {
   await repo.updateProfile(sql, id, patch);
-  return getUser(sql, id);
+  // Return the same AuthUser shape GET /v1/me uses, not the admin-detail shape —
+  // callers (e.g. onboarding) treat PATCH /v1/me's response like a fresh /v1/me.
+  return getMe(sql, id);
 }
 
 export const deleteUser = repo.deleteUser;

@@ -165,5 +165,13 @@ export async function getMe(sql: Sql, userId: string) {
     fullName: profile.full_name,
     age: profile.age,
     onboardingStatus: profile.onboarding_status,
+    cefrLevel: profile.cefr_level,
+    country: profile.country,
+    nativeLanguage: profile.native_language,
+    learningGoal: profile.learning_goal,
+    interests: profile.interests,
+    avatarUrl: profile.avatar_url,
+    demoCompleted: profile.demo_completed,
+    selectedPlan: profile.selected_plan,
   };
 }

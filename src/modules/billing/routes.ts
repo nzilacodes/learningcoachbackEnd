@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../../plugins/auth.js";
-import { requireRole } from "../../plugins/roles.js";
 import { createCheckoutSessionSchema, paymentIdParamsSchema } from "./schemas.js";
 import * as service from "./service.js";
 
@@ -25,10 +24,10 @@ export default async function billingRoutes(fastify: FastifyInstance) {
 
   fastify.post(
     "/payments/:id/simulate",
-    { preHandler: [requireAuth, requireRole("admin")] },
+    { preHandler: requireAuth },
     async (request) => {
       const { id } = paymentIdParamsSchema.parse(request.params);
-      return service.simulatePayment(request.server.sql, id);
+      return service.simulatePayment(request.server.sql, request.userId, id);
     },
   );
 }

@@ -44,11 +44,41 @@ export async function getUserRoles(sql: Sql, userId: string): Promise<string[]> 
   return rows.map((r) => r.role);
 }
 
-export async function getProfileSummary(sql: Sql, userId: string) {
-  const rows = await sql<{ full_name: string | null; age: number | null; onboarding_status: string | null }[]>`
-    SELECT full_name, age, onboarding_status FROM public.profiles WHERE id = ${userId}
+export type ProfileSummary = {
+  full_name: string | null;
+  age: number | null;
+  onboarding_status: string | null;
+  cefr_level: string | null;
+  country: string | null;
+  native_language: string | null;
+  learning_goal: string | null;
+  interests: string[] | null;
+  avatar_url: string | null;
+  demo_completed: boolean | null;
+  selected_plan: string | null;
+};
+
+const EMPTY_PROFILE_SUMMARY: ProfileSummary = {
+  full_name: null,
+  age: null,
+  onboarding_status: null,
+  cefr_level: null,
+  country: null,
+  native_language: null,
+  learning_goal: null,
+  interests: null,
+  avatar_url: null,
+  demo_completed: null,
+  selected_plan: null,
+};
+
+export async function getProfileSummary(sql: Sql, userId: string): Promise<ProfileSummary> {
+  const rows = await sql<ProfileSummary[]>`
+    SELECT full_name, age, onboarding_status, cefr_level, country, native_language,
+           learning_goal, interests, avatar_url, demo_completed, selected_plan
+    FROM public.profiles WHERE id = ${userId}
   `;
-  return rows[0] ?? { full_name: null, age: null, onboarding_status: null };
+  return rows[0] ?? EMPTY_PROFILE_SUMMARY;
 }
 
 // ---------- Refresh tokens ----------
