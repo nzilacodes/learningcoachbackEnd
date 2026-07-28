@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import crypto from "node:crypto";
 import { env } from "../../config/env.js";
 import * as repo from "./repository.js";
 
@@ -45,11 +46,25 @@ export const listPaymentsAdmin = repo.listPaymentsAdmin;
 export const listSubscriptionsAdmin = repo.listSubscriptionsAdmin;
 export const getAdminStats = repo.getAdminStats;
 
+function generateActivationCode(): string {
+  const part = () => crypto.randomInt(0, 36 ** 4).toString(36).toUpperCase().padStart(4, "0");
+  return `LEC-${part()}-${part()}`;
+}
+
 export async function activatePayment(sql: Sql, paymentId: string, providerTransactionId?: string) {
   const payment = await repo.getPaymentById(sql, paymentId);
   if (!payment) throw new NotFoundError("Payment not found");
-  if (payment.status === "paid") return payment;
-  return repo.markPaymentActivated(sql, paymentId, providerTransactionId);
+  if (payment.status === "paid") return { ...payment, activationCode: null };
+  const updated = await repo.markPaymentActivated(sql, paymentId, providerTransactionId);
+  // The activate_subscription_on_payment DB trigger already activated the linked
+  // subscription (status/starts_at/expires_at) on the status->paid transition above;
+  // it doesn't mint a human-readable code, so that part is finished here.
+  let activationCode: string | null = null;
+  if (payment.subscription_id) {
+    activationCode = generateActivationCode();
+    await repo.setSubscriptionActivationCode(sql, payment.subscription_id, activationCode);
+  }
+  return { ...updated, activationCode };
 }
 
 export async function cancelPaymentAdmin(sql: Sql, paymentId: string) {

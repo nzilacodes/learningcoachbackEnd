@@ -99,9 +99,10 @@ export async function markPaymentSimulatedPaid(sql: Sql, id: string) {
 }
 
 const ADMIN_PAYMENT_COLUMNS = `
-  p.id, p.user_id, p.status, p.method, p.provider, p.amount_kz, p.reference, p.entity, p.phone,
+  p.id, p.user_id, p.subscription_id, p.status, p.method, p.provider, p.amount_kz, p.reference, p.entity, p.phone,
   p.invoice_number, p.provider_transaction_id, p.created_at, p.paid_at, p.expires_at,
   to_jsonb(sp.*) AS subscription_plans,
+  jsonb_build_object('activation_code', s.activation_code, 'expires_at', s.expires_at, 'status', s.status) AS subscriptions,
   jsonb_build_object('full_name', pr.full_name, 'email', u.email) AS profiles
 `;
 
@@ -110,6 +111,7 @@ export async function listPaymentsAdmin(sql: Sql, limit: number, offset: number)
     SELECT ${sql.unsafe(ADMIN_PAYMENT_COLUMNS)}
     FROM public.payments p
     LEFT JOIN public.subscription_plans sp ON sp.id = p.plan_id
+    LEFT JOIN public.subscriptions s ON s.id = p.subscription_id
     LEFT JOIN public.app_users u ON u.id = p.user_id
     LEFT JOIN public.profiles pr ON pr.id = p.user_id
     ORDER BY p.created_at DESC
@@ -127,6 +129,10 @@ export async function markPaymentActivated(sql: Sql, id: string, providerTransac
     RETURNING *
   `;
   return row;
+}
+
+export async function setSubscriptionActivationCode(sql: Sql, subscriptionId: string, code: string) {
+  await sql`UPDATE public.subscriptions SET activation_code = ${code} WHERE id = ${subscriptionId}`;
 }
 
 export async function cancelPaymentAdmin(sql: Sql, id: string) {
