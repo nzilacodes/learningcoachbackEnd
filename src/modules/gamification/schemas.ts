@@ -25,6 +25,7 @@ export const addFriendSchema = z.object({ email: z.string().trim().toLowerCase()
 
 export const leaderboardQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10),
+  country: z.string().trim().max(100).optional(),
 });
 
 export const daysQuerySchema = z.object({

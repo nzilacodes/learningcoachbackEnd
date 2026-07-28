@@ -202,7 +202,7 @@ export async function listUserAchievements(sql: Sql, userId: string) {
 
 // ---------- Leaderboard / rank ----------
 
-export async function getLeaderboard(sql: Sql, limit: number) {
+export async function getLeaderboard(sql: Sql, limit: number, country?: string) {
   return sql`
     SELECT
       ROW_NUMBER() OVER (ORDER BY COALESCE(us.xp, 0) DESC, p.created_at ASC) AS rank,
@@ -216,6 +216,7 @@ export async function getLeaderboard(sql: Sql, limit: number) {
       p.cefr_level
     FROM public.profiles p
     LEFT JOIN public.user_stats us ON us.user_id = p.id
+    WHERE ${country ? sql`p.country = ${country}` : sql`true`}
     ORDER BY xp DESC, p.created_at ASC
     LIMIT ${limit}
   `;
