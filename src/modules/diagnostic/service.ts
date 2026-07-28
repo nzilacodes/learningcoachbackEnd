@@ -60,7 +60,6 @@ export async function submitDiagnostic(sql: Sql, userId: string, input: SubmitIn
   });
 
   const content = await callChatCompletion({
-    model: "google/gemini-3-flash-preview",
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
