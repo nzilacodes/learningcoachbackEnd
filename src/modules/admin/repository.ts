@@ -1,6 +1,14 @@
 import type { Sql } from "postgres";
 
 export async function getAnalytics(sql: Sql, days: number) {
+  // CURRENT_DATE - $1 with a bound integer parameter is ambiguous to Postgres
+  // (date-integer vs date-date overload resolution can pick the wrong one,
+  // erroring "operator does not exist: date >= integer") — pass a plain date
+  // string instead, same pattern already used in learning/repository.ts.
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceDay = since.toISOString().slice(0, 10);
+
   const [
     studentsRows,
     active7Rows,
@@ -22,7 +30,7 @@ export async function getAnalytics(sql: Sql, days: number) {
     sql<{ revenue_total: number }[]>`SELECT COALESCE(SUM(amount_kz),0)::bigint AS revenue_total FROM public.payments WHERE status = 'paid'`,
     sql<{ revenue_month: number }[]>`SELECT COALESCE(SUM(amount_kz),0)::bigint AS revenue_month FROM public.payments WHERE status = 'paid' AND paid_at >= date_trunc('month', now())`,
     sql<{ revenue_year: number }[]>`SELECT COALESCE(SUM(amount_kz),0)::bigint AS revenue_year FROM public.payments WHERE status = 'paid' AND paid_at >= date_trunc('year', now())`,
-    sql<{ avg_study_min: number }[]>`SELECT COALESCE(AVG(seconds),0)/60.0 AS avg_study_min FROM public.study_sessions WHERE day >= CURRENT_DATE - ${days}`,
+    sql<{ avg_study_min: number }[]>`SELECT COALESCE(AVG(seconds),0)/60.0 AS avg_study_min FROM public.study_sessions WHERE day >= ${sinceDay}`,
     sql<{ completion_rate: number }[]>`
       SELECT CASE WHEN COUNT(*) = 0 THEN 0
                   ELSE (COUNT(*) FILTER (WHERE completed_at IS NOT NULL))::numeric * 100 / COUNT(*)
@@ -44,7 +52,7 @@ export async function getAnalytics(sql: Sql, days: number) {
     sql<{ day: string; seconds: number; users: number }[]>`
       SELECT to_char(day,'YYYY-MM-DD') AS day, SUM(seconds)::bigint AS seconds, count(DISTINCT user_id)::int AS users
       FROM public.study_sessions
-      WHERE day >= CURRENT_DATE - ${days}
+      WHERE day >= ${sinceDay}
       GROUP BY day ORDER BY day
     `,
     sql<{ name: string; tier: string; orders: number; revenue: number }[]>`
