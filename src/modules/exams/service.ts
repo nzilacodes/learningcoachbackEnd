@@ -36,6 +36,8 @@ export async function getExamForClient(sql: Sql, level: CefrLevel) {
   };
 }
 
+export const listAttempts = repo.listAttempts;
+
 export async function submitExam(sql: Sql, userId: string, level: CefrLevel, answers: Record<string, number>) {
   const unlocked = await getMaxUnlockedLevel(sql, userId);
   if (!unlocked || cefrRank(level) !== cefrRank(unlocked)) {

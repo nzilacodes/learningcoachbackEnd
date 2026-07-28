@@ -29,6 +29,21 @@ export async function hasPassedAttempt(sql: Sql, userId: string, level: CefrLeve
   return rows.length > 0;
 }
 
+export async function listAttempts(sql: Sql, userId: string, level?: CefrLevel) {
+  if (level) {
+    return sql`
+      SELECT level, score, passed, created_at FROM public.level_exam_attempts
+      WHERE user_id = ${userId} AND level = ${level}
+      ORDER BY created_at DESC
+    `;
+  }
+  return sql`
+    SELECT level, score, passed, created_at FROM public.level_exam_attempts
+    WHERE user_id = ${userId}
+    ORDER BY created_at DESC
+  `;
+}
+
 export async function insertAttempt(
   sql: Sql,
   params: { userId: string; level: CefrLevel; score: number; passed: boolean; answers: Record<string, number> },

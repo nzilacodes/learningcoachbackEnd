@@ -16,6 +16,7 @@ import diagnosticRoutes from "./modules/diagnostic/routes.js";
 import gamificationRoutes from "./modules/gamification/routes.js";
 import billingRoutes from "./modules/billing/routes.js";
 import aiRoutes from "./modules/ai/routes.js";
+import learningRoutes from "./modules/learning/routes.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -58,6 +59,7 @@ export async function buildApp() {
   await app.register(gamificationRoutes, { prefix: "/v1" });
   await app.register(billingRoutes, { prefix: "/v1" });
   await app.register(aiRoutes, { prefix: "/v1" });
+  await app.register(learningRoutes, { prefix: "/v1" });
 
   return app;
 }

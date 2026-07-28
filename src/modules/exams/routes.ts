@@ -1,10 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../../plugins/auth.js";
+import { cefrLevelSchema } from "../../lib/cefr.js";
 import { levelParamsSchema, submitExamSchema } from "./schemas.js";
 import * as service from "./service.js";
 import * as repo from "./repository.js";
 
 export default async function examsRoutes(fastify: FastifyInstance) {
+  fastify.get("/me/level-exam-attempts", { preHandler: requireAuth }, async (request) => {
+    const level = cefrLevelSchema.optional().parse((request.query as { level?: string }).level);
+    return service.listAttempts(request.server.sql, request.userId, level);
+  });
+
   fastify.get("/me/level-access", { preHandler: requireAuth }, async (request) => {
     const sql = request.server.sql;
     const [maxUnlockedLevel, minExamScore] = await Promise.all([
