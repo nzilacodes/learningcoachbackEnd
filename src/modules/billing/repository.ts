@@ -46,7 +46,7 @@ export async function createSubscriptionOrder(
         user_id, subscription_id, plan_id, amount_kz, status, method, reference, entity, phone, provider, invoice_number, metadata
       ) VALUES (
         ${userId}, ${subscription!.id}, ${params.planId}, ${plan.price_kz}, 'pending', ${params.method},
-        ${reference}, ${entity}, ${params.phone ?? null}, ${params.provider ?? null}, ${invoiceNumber}, '{}'::jsonb
+        ${reference}, ${entity}, ${params.phone ?? null}, ${params.provider ?? "paypay"}, ${invoiceNumber}, '{}'::jsonb
       )
       RETURNING id
     `;
