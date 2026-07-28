@@ -37,3 +37,139 @@ export async function upsertWord(sql: Sql, row: WordRow) {
   `;
   return saved;
 }
+
+type Mispronounced = { word: string; expected_ipa: string; heard: string; tip: string };
+
+type ReadingAssessmentRow = {
+  userId: string;
+  lessonId?: string;
+  passage: string;
+  passageKey: string;
+  transcript: string;
+  durationSeconds: number;
+  wpm: number;
+  comprehensionScore: number;
+  accuracy: number;
+  pronunciation: number;
+  fluency: number;
+  intonation: number;
+  rhythm: number;
+  clarity: number;
+  pauses: number;
+  overall: number;
+  feedback: string;
+  mispronounced: Mispronounced[];
+};
+
+export async function insertReadingAssessment(sql: Sql, row: ReadingAssessmentRow) {
+  const [saved] = await sql`
+    INSERT INTO public.reading_assessments (
+      user_id, lesson_id, passage, passage_key, transcript, duration_seconds,
+      wpm, comprehension_score, accuracy, pronunciation, fluency, intonation,
+      rhythm, clarity, pauses, overall, feedback, mispronounced
+    ) VALUES (
+      ${row.userId}, ${row.lessonId ?? null}, ${row.passage}, ${row.passageKey}, ${row.transcript}, ${row.durationSeconds},
+      ${row.wpm}, ${row.comprehensionScore}, ${row.accuracy}, ${row.pronunciation}, ${row.fluency}, ${row.intonation},
+      ${row.rhythm}, ${row.clarity}, ${row.pauses}, ${row.overall}, ${row.feedback}, ${sql.json(row.mispronounced)}
+    )
+    RETURNING *
+  `;
+  return saved;
+}
+
+export async function listReadingHistory(sql: Sql, userId: string, passageKey?: string) {
+  if (passageKey) {
+    return sql`
+      SELECT * FROM public.reading_assessments
+      WHERE user_id = ${userId} AND passage_key = ${passageKey}
+      ORDER BY created_at DESC
+      LIMIT 50
+    `;
+  }
+  return sql`
+    SELECT * FROM public.reading_assessments
+    WHERE user_id = ${userId}
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+}
+
+type PhonemeIssue = { sound: string; tip: string };
+
+type PronunciationAssessmentRow = {
+  userId: string;
+  lessonId?: string;
+  word: string;
+  expectedText: string;
+  transcribedText: string;
+  accuracy: number;
+  fluency: number;
+  intonation: number;
+  rhythm: number;
+  clarity: number;
+  overall: number;
+  feedback: string;
+  phonemeIssues: PhonemeIssue[];
+};
+
+export async function insertPronunciationAssessment(sql: Sql, row: PronunciationAssessmentRow) {
+  const [saved] = await sql`
+    INSERT INTO public.pronunciation_assessments (
+      user_id, lesson_id, word, expected_text, transcribed_text, accuracy,
+      fluency, intonation, rhythm, clarity, overall, feedback, phoneme_issues
+    ) VALUES (
+      ${row.userId}, ${row.lessonId ?? null}, ${row.word}, ${row.expectedText}, ${row.transcribedText}, ${row.accuracy},
+      ${row.fluency}, ${row.intonation}, ${row.rhythm}, ${row.clarity}, ${row.overall}, ${row.feedback}, ${sql.json(row.phonemeIssues)}
+    )
+    RETURNING *
+  `;
+  return saved;
+}
+
+export async function listPronunciationHistory(sql: Sql, userId: string) {
+  return sql`
+    SELECT * FROM public.pronunciation_assessments
+    WHERE user_id = ${userId}
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+}
+
+export async function getCachedStudyPack(sql: Sql, videoId: string) {
+  const rows = await sql`SELECT * FROM public.video_study_packs WHERE video_id = ${videoId}`;
+  return rows[0] ?? null;
+}
+
+type StudyPackData = {
+  transcript_excerpt: string;
+  summary: string;
+  key_vocabulary: { word: string; pt: string; example: string }[];
+  quiz: { q: string; opts: string[]; a: number }[];
+  listening_activities: string[];
+  speaking_activities: string[];
+  vocabulary_activities: string[];
+};
+
+type StudyPackRow = {
+  videoId: string;
+  videoUrl: string;
+  title: string;
+  channel: string;
+  topic: string;
+  level: string;
+  ageGroup: string;
+  pack: StudyPackData;
+};
+
+export async function upsertStudyPack(sql: Sql, row: StudyPackRow) {
+  const [saved] = await sql`
+    INSERT INTO public.video_study_packs (video_id, video_url, title, channel, topic, level, age_group, pack)
+    VALUES (${row.videoId}, ${row.videoUrl}, ${row.title}, ${row.channel}, ${row.topic}, ${row.level}, ${row.ageGroup}, ${sql.json(row.pack)})
+    ON CONFLICT (video_id) DO UPDATE SET
+      video_url = EXCLUDED.video_url, title = EXCLUDED.title, channel = EXCLUDED.channel,
+      topic = EXCLUDED.topic, level = EXCLUDED.level, age_group = EXCLUDED.age_group,
+      pack = EXCLUDED.pack, updated_at = now()
+    RETURNING *
+  `;
+  return saved;
+}

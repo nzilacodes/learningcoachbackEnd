@@ -96,3 +96,288 @@ export async function getWordData(sql: Sql, rawWord: string) {
 
   return repo.upsertWord(sql, { ...generated, word });
 }
+
+// -- Reading assessment -------------------------------------------------------
+
+const ReadingAssessSchema = z.object({
+  pronunciation: z.number().min(0).max(100),
+  fluency: z.number().min(0).max(100),
+  intonation: z.number().min(0).max(100),
+  rhythm: z.number().min(0).max(100),
+  clarity: z.number().min(0).max(100),
+  pauses: z.number().min(0).max(100),
+  overall: z.number().min(0).max(100),
+  mispronounced: z
+    .array(
+      z.object({
+        word: z.string(),
+        expected_ipa: z.string().default(""),
+        heard: z.string().default(""),
+        tip: z.string().default(""),
+      }),
+    )
+    .default([]),
+  feedback: z.string().default(""),
+});
+
+function normalizeForDiff(s: string): string[] {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^\w\s']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+}
+
+function diffWords(expected: string, actual: string): string[] {
+  const exp = normalizeForDiff(expected);
+  const act = new Set(normalizeForDiff(actual));
+  const missing: string[] = [];
+  for (const w of exp) if (!act.has(w) && !missing.includes(w)) missing.push(w);
+  return missing.slice(0, 30);
+}
+
+type ReadingAssessInput = {
+  passageKey: string;
+  passage: string;
+  transcript: string;
+  durationSeconds: number;
+  lessonId?: string;
+};
+
+export async function assessReading(sql: Sql, userId: string, input: ReadingAssessInput) {
+  const missing = diffWords(input.passage, input.transcript);
+  const wordCount = input.passage.split(/\s+/).filter(Boolean).length;
+  const wpm = Math.round((wordCount / input.durationSeconds) * 60);
+
+  const content = await callChatCompletion({
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are an English speaking coach. Analyse a learner's read-aloud attempt and grade it 0-100 on pronunciation, fluency, intonation, rhythm, clarity and pauses. Return strict JSON only.",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          target_passage: input.passage,
+          student_transcript: input.transcript,
+          approximate_wpm: wpm,
+          likely_missed_or_mispronounced_words: missing,
+          instructions:
+            "For 'mispronounced' return up to 8 words the learner likely said wrong with expected_ipa (British), heard (best guess phonetic), and a short tip. 'feedback' is one short paragraph in Portuguese.",
+          response_shape: {
+            pronunciation: 0,
+            fluency: 0,
+            intonation: 0,
+            rhythm: 0,
+            clarity: 0,
+            pauses: 0,
+            overall: 0,
+            mispronounced: [{ word: "", expected_ipa: "", heard: "", tip: "" }],
+            feedback: "",
+          },
+        }),
+      },
+    ],
+  });
+  const report = ReadingAssessSchema.parse(JSON.parse(content));
+  const accuracy = Math.max(0, 1 - missing.length / Math.max(1, wordCount));
+
+  await repo.insertReadingAssessment(sql, {
+    userId,
+    lessonId: input.lessonId,
+    passage: input.passage,
+    passageKey: input.passageKey,
+    transcript: input.transcript,
+    durationSeconds: input.durationSeconds,
+    wpm,
+    comprehensionScore: report.overall,
+    accuracy,
+    pronunciation: report.pronunciation,
+    fluency: report.fluency,
+    intonation: report.intonation,
+    rhythm: report.rhythm,
+    clarity: report.clarity,
+    pauses: report.pauses,
+    overall: report.overall,
+    feedback: report.feedback,
+    mispronounced: report.mispronounced,
+  });
+
+  return { ...report, wpm, missing };
+}
+
+export async function getReadingHistory(sql: Sql, userId: string, passageKey?: string) {
+  return repo.listReadingHistory(sql, userId, passageKey);
+}
+
+// -- Pronunciation assessment --------------------------------------------------
+
+const PronunciationAssessSchema = z.object({
+  pronunciation: z.number().min(0).max(100),
+  fluency: z.number().min(0).max(100),
+  intonation: z.number().min(0).max(100),
+  rhythm: z.number().min(0).max(100),
+  clarity: z.number().min(0).max(100),
+  overall: z.number().min(0).max(100),
+  phoneme_issues: z.array(z.object({ sound: z.string(), tip: z.string() })).default([]),
+  feedback: z.string().default(""),
+});
+
+type PronunciationAssessInput = {
+  word: string;
+  transcribed: string;
+  ipa: string;
+  lessonId?: string;
+};
+
+export async function assessPronunciation(sql: Sql, userId: string, input: PronunciationAssessInput) {
+  const content = await callChatCompletion({
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are an expert English pronunciation coach. Given the target word/phrase, its IPA (if provided) and the learner's ASR transcription, estimate scores 0-100 for: pronunciation, fluency, intonation, rhythm, clarity, overall. List up to 5 specific phoneme_issues each as { sound: '/θ/', tip: 'place tongue between teeth' } and short PT feedback. Be strict but fair; a very different transcription implies low scores. Return JSON only.",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          target: input.word,
+          ipa: input.ipa,
+          asr_transcription: input.transcribed,
+        }),
+      },
+    ],
+  });
+  const score = PronunciationAssessSchema.parse(JSON.parse(content));
+
+  await repo.insertPronunciationAssessment(sql, {
+    userId,
+    lessonId: input.lessonId,
+    word: input.word,
+    expectedText: input.word,
+    transcribedText: input.transcribed,
+    accuracy: score.pronunciation,
+    fluency: score.fluency,
+    intonation: score.intonation,
+    rhythm: score.rhythm,
+    clarity: score.clarity,
+    overall: score.overall,
+    feedback: score.feedback,
+    phonemeIssues: score.phoneme_issues,
+  });
+
+  return score;
+}
+
+export async function getPronunciationHistory(sql: Sql, userId: string) {
+  return repo.listPronunciationHistory(sql, userId);
+}
+
+// -- Video study pack ----------------------------------------------------------
+
+const StudyPackSchema = z.object({
+  transcript_excerpt: z.string(),
+  summary: z.string(),
+  key_vocabulary: z.array(z.object({ word: z.string(), pt: z.string(), example: z.string() })),
+  quiz: z.array(z.object({ q: z.string(), opts: z.array(z.string()).length(4), a: z.number().min(0).max(3) })),
+  listening_activities: z.array(z.string()),
+  speaking_activities: z.array(z.string()),
+  vocabulary_activities: z.array(z.string()),
+});
+
+const FALLBACK_STUDY_PACK = {
+  transcript_excerpt: "Transcript is being prepared. In the meantime, watch the video and take notes of new words.",
+  summary:
+    "This video introduces vocabulary and expressions related to the lesson topic. Watch carefully and try to catch the main ideas.",
+  key_vocabulary: [],
+  quiz: [],
+  listening_activities: [
+    "Listen once without subtitles and note 3 words you recognize.",
+    "Listen a second time with subtitles and write down 3 new words.",
+    "Pause at 1:00 and summarize what you heard in one sentence.",
+    "Listen again and count how many times the topic keyword appears.",
+  ],
+  speaking_activities: [
+    "Summarize the video out loud in 60 seconds.",
+    "Describe your opinion about the topic in 3 sentences.",
+    "Role-play a short dialogue using vocabulary from the video.",
+    "Record yourself reading the summary aloud.",
+  ],
+  vocabulary_activities: [
+    "Write 5 new words from the video with translations.",
+    "Create one example sentence for each new word.",
+    "Group the new words by category (verbs, nouns, adjectives).",
+    "Use 3 words in a short paragraph.",
+  ],
+};
+
+type StudyPackInput = {
+  videoUrl: string;
+  title: string;
+  channel: string;
+  topic: string;
+  level: string;
+  ageGroup: string;
+};
+
+export async function getVideoStudyPack(sql: Sql, videoId: string, input: StudyPackInput) {
+  const cached = await repo.getCachedStudyPack(sql, videoId);
+  if (cached) return cached.pack;
+
+  const system =
+    "You are an English teacher. Produce a JSON study pack for an English lesson built around a YouTube video. " +
+    "All learner-facing text must be in English EXCEPT the `pt` field of vocabulary which is Portuguese (pt-PT). " +
+    "Keep everything CEFR-aligned to the given level. Return ONLY valid JSON matching this schema: " +
+    '{"transcript_excerpt": string (~120 words simulated excerpt of the likely transcript, faithful to the video topic; not the full transcript), ' +
+    '"summary": string (4-6 sentences summarizing the likely video content), ' +
+    '"key_vocabulary": [{"word": string, "pt": string, "example": string}] (8 items), ' +
+    '"quiz": [{"q": string, "opts": [4 strings], "a": index 0-3}] (5 items, comprehension + grammar + vocab), ' +
+    '"listening_activities": [string] (4 short tasks such as "Listen and identify..."), ' +
+    '"speaking_activities": [string] (4 short prompts: role-plays, describe, discuss), ' +
+    '"vocabulary_activities": [string] (4 short tasks: matching, fill-the-blank, categorize)}';
+
+  const user = JSON.stringify({
+    videoTitle: input.title,
+    channel: input.channel,
+    videoUrl: input.videoUrl,
+    topic: input.topic,
+    cefr_level: input.level,
+    age_group: input.ageGroup,
+    instruction:
+      "Base the transcript excerpt and summary on the plausible content given the title, channel, and topic. If uncertain, keep it generic to the topic and level. Do not invent facts about specific people.",
+  });
+
+  let pack: z.infer<typeof StudyPackSchema>;
+  try {
+    const content = await callChatCompletion({
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    });
+    pack = StudyPackSchema.parse(JSON.parse(content));
+  } catch {
+    return FALLBACK_STUDY_PACK;
+  }
+
+  await repo.upsertStudyPack(sql, {
+    videoId,
+    videoUrl: input.videoUrl,
+    title: input.title,
+    channel: input.channel,
+    topic: input.topic,
+    level: input.level,
+    ageGroup: input.ageGroup,
+    pack,
+  });
+
+  return pack;
+}
