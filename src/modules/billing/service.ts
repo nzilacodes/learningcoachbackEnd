@@ -40,3 +40,24 @@ export async function simulatePayment(sql: Sql, userId: string, paymentId: strin
   if (payment.status === "paid") return payment;
   return repo.markPaymentSimulatedPaid(sql, paymentId);
 }
+
+export const listPaymentsAdmin = repo.listPaymentsAdmin;
+export const listSubscriptionsAdmin = repo.listSubscriptionsAdmin;
+export const getAdminStats = repo.getAdminStats;
+
+export async function activatePayment(sql: Sql, paymentId: string, providerTransactionId?: string) {
+  const payment = await repo.getPaymentById(sql, paymentId);
+  if (!payment) throw new NotFoundError("Payment not found");
+  if (payment.status === "paid") return payment;
+  return repo.markPaymentActivated(sql, paymentId, providerTransactionId);
+}
+
+export async function cancelPaymentAdmin(sql: Sql, paymentId: string) {
+  const payment = await repo.getPaymentById(sql, paymentId);
+  if (!payment) throw new NotFoundError("Payment not found");
+  return repo.cancelPaymentAdmin(sql, paymentId);
+}
+
+export async function cancelSubscriptionAdmin(sql: Sql, subscriptionId: string) {
+  return repo.cancelSubscriptionAdmin(sql, subscriptionId);
+}

@@ -4,18 +4,20 @@ export type UserListItem = {
   id: string;
   email: string;
   full_name: string | null;
+  age: number | null;
+  cefr_level: string | null;
   created_at: Date;
   roles: string[];
 };
 
 export async function listUsers(sql: Sql, limit: number, offset: number): Promise<{ items: UserListItem[]; total: number }> {
   const items = await sql<UserListItem[]>`
-    SELECT u.id, u.email, p.full_name, u.created_at,
+    SELECT u.id, u.email, p.full_name, p.age, p.cefr_level, u.created_at,
            COALESCE(array_agg(r.role) FILTER (WHERE r.role IS NOT NULL), '{}') AS roles
     FROM public.app_users u
     LEFT JOIN public.profiles p ON p.id = u.id
     LEFT JOIN public.user_roles r ON r.user_id = u.id
-    GROUP BY u.id, u.email, p.full_name, u.created_at
+    GROUP BY u.id, u.email, p.full_name, p.age, p.cefr_level, u.created_at
     ORDER BY u.created_at DESC
     LIMIT ${limit} OFFSET ${offset}
   `;

@@ -97,3 +97,89 @@ export async function markPaymentSimulatedPaid(sql: Sql, id: string) {
   `;
   return row;
 }
+
+const ADMIN_PAYMENT_COLUMNS = `
+  p.id, p.user_id, p.status, p.method, p.provider, p.amount_kz, p.reference, p.entity, p.phone,
+  p.invoice_number, p.provider_transaction_id, p.created_at, p.paid_at, p.expires_at,
+  to_jsonb(sp.*) AS subscription_plans,
+  jsonb_build_object('full_name', pr.full_name, 'email', u.email) AS profiles
+`;
+
+export async function listPaymentsAdmin(sql: Sql, limit: number, offset: number) {
+  const items = await sql`
+    SELECT ${sql.unsafe(ADMIN_PAYMENT_COLUMNS)}
+    FROM public.payments p
+    LEFT JOIN public.subscription_plans sp ON sp.id = p.plan_id
+    LEFT JOIN public.app_users u ON u.id = p.user_id
+    LEFT JOIN public.profiles pr ON pr.id = p.user_id
+    ORDER BY p.created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+  const [countRow] = await sql<{ count: string }[]>`SELECT count(*)::text FROM public.payments`;
+  return { items, total: Number(countRow!.count) };
+}
+
+export async function markPaymentActivated(sql: Sql, id: string, providerTransactionId?: string) {
+  const [row] = await sql`
+    UPDATE public.payments
+    SET status = 'paid', provider_transaction_id = COALESCE(${providerTransactionId ?? null}, provider_transaction_id)
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  return row;
+}
+
+export async function cancelPaymentAdmin(sql: Sql, id: string) {
+  const [row] = await sql`
+    UPDATE public.payments SET status = 'cancelled' WHERE id = ${id}
+    RETURNING *
+  `;
+  return row;
+}
+
+const ADMIN_SUBSCRIPTION_COLUMNS = `
+  s.id, s.user_id, s.plan_id, s.status, s.starts_at, s.expires_at, s.activation_code, s.created_at,
+  to_jsonb(sp.*) AS subscription_plans,
+  jsonb_build_object('full_name', pr.full_name, 'email', u.email) AS profiles
+`;
+
+export async function listSubscriptionsAdmin(sql: Sql, limit: number, offset: number) {
+  const items = await sql`
+    SELECT ${sql.unsafe(ADMIN_SUBSCRIPTION_COLUMNS)}
+    FROM public.subscriptions s
+    LEFT JOIN public.subscription_plans sp ON sp.id = s.plan_id
+    LEFT JOIN public.app_users u ON u.id = s.user_id
+    LEFT JOIN public.profiles pr ON pr.id = s.user_id
+    ORDER BY s.created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+  const [countRow] = await sql<{ count: string }[]>`SELECT count(*)::text FROM public.subscriptions`;
+  return { items, total: Number(countRow!.count) };
+}
+
+export async function cancelSubscriptionAdmin(sql: Sql, id: string) {
+  const [row] = await sql`
+    UPDATE public.subscriptions SET status = 'cancelled' WHERE id = ${id}
+    RETURNING *
+  `;
+  return row;
+}
+
+export async function getAdminStats(sql: Sql) {
+  const [row] = await sql<
+    { total_users: string; active_subscriptions: string; pending_payments: string; month_revenue: string }[]
+  >`
+    SELECT
+      (SELECT count(*) FROM public.app_users)::text AS total_users,
+      (SELECT count(*) FROM public.subscriptions WHERE status = 'active')::text AS active_subscriptions,
+      (SELECT count(*) FROM public.payments WHERE status = 'pending')::text AS pending_payments,
+      (SELECT COALESCE(SUM(amount_kz), 0) FROM public.payments
+        WHERE status = 'paid' AND paid_at >= date_trunc('month', now()))::text AS month_revenue
+  `;
+  return {
+    totalUsers: Number(row!.total_users),
+    activeSubscriptions: Number(row!.active_subscriptions),
+    pendingPayments: Number(row!.pending_payments),
+    monthRevenue: Number(row!.month_revenue),
+  };
+}
