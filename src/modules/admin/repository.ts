@@ -56,12 +56,12 @@ export async function getAnalytics(sql: Sql, days: number) {
       GROUP BY day ORDER BY day
     `,
     sql<{ name: string; tier: string; orders: number; revenue: number }[]>`
-      SELECT sp.name, sp.tier::text AS tier,
+      SELECT sp.tier::text AS name, sp.tier::text AS tier,
              count(p.id)::int AS orders,
              COALESCE(SUM(p.amount_kz) FILTER (WHERE p.status = 'paid'),0)::bigint AS revenue
       FROM public.subscription_plans sp
       LEFT JOIN public.payments p ON p.plan_id = sp.id
-      GROUP BY sp.id, sp.name, sp.tier
+      GROUP BY sp.id, sp.tier
       ORDER BY revenue DESC
     `,
     sql<{ method: string; count: number; revenue: number }[]>`
