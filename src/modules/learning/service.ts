@@ -17,11 +17,17 @@ export async function getCurriculum(sql: Sql) {
 
 export const getProgress = repo.getProgress;
 
-export async function getLessonDetail(sql: Sql, id: string) {
+export async function getLessonDetail(sql: Sql, id: string, authenticated: boolean) {
   const lesson = await repo.getLessonById(sql, id);
   if (!lesson) throw new NotFoundError("Lesson not found");
   const exercises = await repo.listExercisesForLesson(sql, id);
-  return { ...lesson, exercises };
+  // GET /lessons/:id is public (unauthenticated demo preview), but answer keys
+  // stay for signed-in callers only — an anonymous request shouldn't be able
+  // to scrape every quiz/final_test answer in the curriculum for free.
+  const safeExercises = authenticated
+    ? exercises
+    : exercises.map(({ correct_answer: _correctAnswer, ...rest }) => rest);
+  return { ...lesson, exercises: safeExercises };
 }
 
 export async function updateLessonAdmin(sql: Sql, id: string, patch: repo.LessonPatch) {
@@ -56,11 +62,11 @@ export async function completeLesson(sql: Sql, userId: string, lessonId: string)
   const lesson = await repo.getLessonById(sql, lessonId);
   if (!lesson) throw new NotFoundError("Lesson not found");
 
-  const existing = await repo.getLessonProgressRow(sql, userId, lesson.unit_id, lessonId);
-  await repo.completeLessonProgress(sql, userId, lesson.unit_id, lessonId);
+  const justCompleted = await repo.completeLessonProgress(sql, userId, lesson.unit_id, lessonId);
 
-  // Already completed before — don't let re-opening a finished lesson farm XP again.
-  if (existing?.completed_at) return { alreadyCompleted: true as const };
+  // Already completed before — don't let re-opening a finished lesson (or a
+  // duplicate/concurrent request) farm XP again.
+  if (!justCompleted) return { alreadyCompleted: true as const };
 
   const reward = await awardActivity(sql, userId, "lesson_complete", { lessonId });
   return { alreadyCompleted: false as const, ...reward };

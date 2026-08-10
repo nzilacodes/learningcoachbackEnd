@@ -28,6 +28,23 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   }
 }
 
+/**
+ * Like requireAuth, but never rejects the request — it just populates
+ * request.userId when a valid session cookie is present. For routes that are
+ * public but behave differently for logged-in callers (e.g. hiding answer
+ * keys from anonymous visitors while still serving the lesson content).
+ */
+export async function optionalAuth(request: FastifyRequest, _reply: FastifyReply) {
+  const token = request.cookies.access_token;
+  if (!token) return;
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    if (typeof payload.sub === "string") request.userId = payload.sub;
+  } catch {
+    // Invalid/expired token on an optional-auth route — proceed unauthenticated.
+  }
+}
+
 export default fp(async function authPlugin(fastify: FastifyInstance) {
   fastify.decorateRequest("userId", "");
 });

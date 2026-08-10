@@ -14,6 +14,15 @@ class ForbiddenError extends Error {
 class BadRequestError extends Error {
   statusCode = 400;
 }
+class RateLimitedError extends Error {
+  statusCode = 429;
+}
+
+// Shortest a genuine playthrough could plausibly take (the MC/listening games
+// run 5 rounds; speaking/writing take at least this long to record+submit).
+// Blocks scripted repeat-fire of POST /v1/xp/events for the same game without
+// requiring a full play-session/proof-of-play system.
+const GAME_COOLDOWN_SECONDS = 15;
 
 // Mirrors the curated catalog in learningcoach's src/lib/age-tracks.ts — the
 // client sends a gameId, the server decides the XP, so a request can't just
@@ -80,6 +89,14 @@ function resolveReward(source: ActivitySource, meta: Record<string, unknown>): {
 
 export async function awardActivity(sql: Sql, userId: string, source: ActivitySource, meta: Record<string, unknown>) {
   const reward = resolveReward(source, meta);
+
+  if (source === "game") {
+    const gameId = String(meta.gameId);
+    if (await repo.hasRecentGameEvent(sql, userId, gameId, GAME_COOLDOWN_SECONDS)) {
+      throw new RateLimitedError("You just played this game — wait a bit before playing it again.");
+    }
+  }
+
   const state = await repo.getProfileGameState(sql, userId);
 
   const today = todayUtc();

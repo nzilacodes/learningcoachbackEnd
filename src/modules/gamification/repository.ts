@@ -8,6 +8,16 @@ export type ProfileGameState = {
   last_active_date: string | null;
 };
 
+export async function hasRecentGameEvent(sql: Sql, userId: string, gameId: string, cooldownSeconds: number): Promise<boolean> {
+  const rows = await sql`
+    SELECT 1 FROM public.xp_events
+    WHERE user_id = ${userId} AND source = 'game' AND meta->>'gameId' = ${gameId}
+      AND created_at >= now() - make_interval(secs => ${cooldownSeconds})
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
 export async function getProfileGameState(sql: Sql, userId: string): Promise<ProfileGameState> {
   const rows = await sql<ProfileGameState[]>`
     SELECT xp, level, streak, coins, last_active_date::text FROM public.profiles WHERE id = ${userId}

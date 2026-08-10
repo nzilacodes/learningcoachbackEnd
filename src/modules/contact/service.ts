@@ -8,9 +8,15 @@ export async function submitContactMessage(
   input: { name: string; email: string; subject?: string; message: string },
 ) {
   await repo.insertContactMessage(sql, input);
-  await sendMail({
-    to: env.OWNER_EMAIL,
-    subject: `[Contacto] ${input.subject || `Mensagem de ${input.name}`}`,
-    text: `${input.message}\n\n— ${input.name} (${input.email})`,
-  });
+  try {
+    await sendMail({
+      to: env.OWNER_EMAIL,
+      subject: `[Contacto] ${input.subject || `Mensagem de ${input.name}`}`,
+      text: `${input.message}\n\n— ${input.name} (${input.email})`,
+    });
+  } catch (err) {
+    // The message is already saved — a transient SMTP failure shouldn't turn
+    // a successful submission into a 500 (and a likely duplicate resubmit).
+    console.error("[contact] failed to send notification email", err);
+  }
 }

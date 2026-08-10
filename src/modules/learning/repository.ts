@@ -112,21 +112,25 @@ export async function deleteExercise(sql: Sql, id: string) {
   await sql`DELETE FROM public.exercises WHERE id = ${id}`;
 }
 
-export async function getLessonProgressRow(sql: Sql, userId: string, unitId: string, lessonId: string) {
-  const rows = await sql<{ completed_at: string | null }[]>`
-    SELECT completed_at FROM public.lesson_progress
-    WHERE user_id = ${userId} AND unit_id = ${unitId} AND lesson_id = ${lessonId}
-  `;
-  return rows[0] ?? null;
-}
-
+/**
+ * Upserts progress to 100%/completed and reports whether *this* call was the
+ * one that first completed it — in one atomic statement, so two concurrent
+ * completion requests can't both read "not completed yet" and both award XP.
+ * completed_at only changes on the row's first completion (COALESCE keeps the
+ * original), so comparing it to this statement's own timestamp tells us which
+ * call won.
+ */
 export async function completeLessonProgress(sql: Sql, userId: string, unitId: string, lessonId: string) {
-  await sql`
+  const [row] = await sql<{ just_completed: boolean }[]>`
     INSERT INTO public.lesson_progress (user_id, unit_id, lesson_id, progress_pct, completed_at)
     VALUES (${userId}, ${unitId}, ${lessonId}, 100, now())
     ON CONFLICT (user_id, unit_id, lesson_id) DO UPDATE SET
-      progress_pct = 100, completed_at = COALESCE(lesson_progress.completed_at, now()), updated_at = now()
+      progress_pct = 100,
+      completed_at = COALESCE(lesson_progress.completed_at, EXCLUDED.completed_at),
+      updated_at = now()
+    RETURNING (completed_at = EXCLUDED.completed_at) AS just_completed
   `;
+  return row!.just_completed;
 }
 
 export type StudyStats = { streak_days: number; last_activity_date: string | null; xp: number };

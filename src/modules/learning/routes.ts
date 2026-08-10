@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { requireAuth } from "../../plugins/auth.js";
+import { requireAuth, optionalAuth } from "../../plugins/auth.js";
 import { requireRole } from "../../plugins/roles.js";
 import {
   studyTimeSchema,
@@ -26,10 +26,11 @@ export default async function learningRoutes(fastify: FastifyInstance) {
   });
 
   // Public like /courses — lets the marketing site link to a real lesson as a
-  // demo preview. Only completing a lesson (below) requires a session.
-  fastify.get("/lessons/:id", async (request) => {
+  // demo preview. Only completing a lesson (below) requires a session; answer
+  // keys are also withheld unless the caller is signed in (see service layer).
+  fastify.get("/lessons/:id", { preHandler: optionalAuth }, async (request) => {
     const { id } = lessonIdParamsSchema.parse(request.params);
-    return service.getLessonDetail(request.server.sql, id);
+    return service.getLessonDetail(request.server.sql, id, !!request.userId);
   });
 
   fastify.post("/lessons/:id/complete", { preHandler: requireAuth }, async (request) => {
