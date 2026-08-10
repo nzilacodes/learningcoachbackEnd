@@ -81,4 +81,8 @@ export default async function gamificationRoutes(fastify: FastifyInstance) {
     const { days } = daysQuerySchema.parse(request.query);
     return service.getXpEvents(request.server.sql, request.userId, days);
   });
+
+  fastify.get("/games/plays", async (request) => {
+    return service.getGamePlays(request.server.sql);
+  });
 }

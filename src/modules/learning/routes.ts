@@ -1,15 +1,68 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../../plugins/auth.js";
-import { studyTimeSchema, studyReminderSchema, videoIdParamsSchema, videoHistoryUpsertSchema } from "./schemas.js";
+import { requireRole } from "../../plugins/roles.js";
+import {
+  studyTimeSchema,
+  studyReminderSchema,
+  videoIdParamsSchema,
+  videoHistoryUpsertSchema,
+  lessonIdParamsSchema,
+  updateLessonSchema,
+  exerciseIdParamsSchema,
+  createExerciseSchema,
+  updateExerciseSchema,
+} from "./schemas.js";
 import * as service from "./service.js";
 
 export default async function learningRoutes(fastify: FastifyInstance) {
+  const adminOnly = [requireAuth, requireRole("admin")];
+
   fastify.get("/courses", async (request) => {
     return service.getCurriculum(request.server.sql);
   });
 
   fastify.get("/me/progress", { preHandler: requireAuth }, async (request) => {
     return service.getProgress(request.server.sql, request.userId);
+  });
+
+  fastify.get("/lessons/:id", { preHandler: requireAuth }, async (request) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    return service.getLessonDetail(request.server.sql, id);
+  });
+
+  fastify.post("/lessons/:id/complete", { preHandler: requireAuth }, async (request) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    return service.completeLesson(request.server.sql, request.userId, id);
+  });
+
+  fastify.patch("/admin/lessons/:id", { preHandler: adminOnly }, async (request) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    const patch = updateLessonSchema.parse(request.body);
+    return service.updateLessonAdmin(request.server.sql, id, patch);
+  });
+
+  fastify.get("/admin/lessons/:id/exercises", { preHandler: adminOnly }, async (request) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    return service.listExercisesAdmin(request.server.sql, id);
+  });
+
+  fastify.post("/admin/lessons/:id/exercises", { preHandler: adminOnly }, async (request, reply) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    const input = createExerciseSchema.parse(request.body);
+    const exercise = await service.createExerciseAdmin(request.server.sql, id, input);
+    return reply.status(201).send(exercise);
+  });
+
+  fastify.patch("/admin/exercises/:id", { preHandler: adminOnly }, async (request) => {
+    const { id } = exerciseIdParamsSchema.parse(request.params);
+    const patch = updateExerciseSchema.parse(request.body);
+    return service.updateExerciseAdmin(request.server.sql, id, patch);
+  });
+
+  fastify.delete("/admin/exercises/:id", { preHandler: adminOnly }, async (request, reply) => {
+    const { id } = exerciseIdParamsSchema.parse(request.params);
+    await service.deleteExerciseAdmin(request.server.sql, id);
+    return reply.status(204).send();
   });
 
   fastify.get("/me/study-stats", { preHandler: requireAuth }, async (request) => {

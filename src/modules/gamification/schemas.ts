@@ -9,6 +9,7 @@ export const ACTIVITY_SOURCES = [
   "listening",
   "daily_study",
   "diagnostic_complete",
+  "game",
 ] as const;
 
 export const awardActivitySchema = z.object({

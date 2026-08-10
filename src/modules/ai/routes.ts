@@ -8,6 +8,9 @@ import {
   pronunciationAssessSchema,
   videoIdParamsSchema,
   videoStudyPackQuerySchema,
+  createConversationSchema,
+  conversationIdParamsSchema,
+  sendCoachMessageSchema,
 } from "./schemas.js";
 import * as service from "./service.js";
 
@@ -83,6 +86,32 @@ export default async function aiRoutes(fastify: FastifyInstance) {
       const { videoId } = videoIdParamsSchema.parse(request.params);
       const input = videoStudyPackQuerySchema.parse(request.query);
       return service.getVideoStudyPack(request.server.sql, videoId, input);
+    },
+  );
+
+  fastify.get("/ai/conversations", { preHandler: requireAuth }, async (request) => {
+    return service.listConversations(request.server.sql, request.userId);
+  });
+
+  fastify.post("/ai/conversations", { preHandler: requireAuth }, async (request, reply) => {
+    const { title } = createConversationSchema.parse(request.body ?? {});
+    const conversation = await service.createConversation(request.server.sql, request.userId, title);
+    return reply.status(201).send(conversation);
+  });
+
+  fastify.get("/ai/conversations/:id/messages", { preHandler: requireAuth }, async (request) => {
+    const { id } = conversationIdParamsSchema.parse(request.params);
+    return service.listMessages(request.server.sql, request.userId, id);
+  });
+
+  fastify.post(
+    "/ai/conversations/:id/messages",
+    { preHandler: requireAuth, config: { rateLimit: AI_RATE_LIMIT } },
+    async (request, reply) => {
+      const { id } = conversationIdParamsSchema.parse(request.params);
+      const { content } = sendCoachMessageSchema.parse(request.body);
+      const result = await service.sendCoachMessage(request.server.sql, request.userId, id, content);
+      return reply.status(201).send(result);
     },
   );
 }

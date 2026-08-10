@@ -135,6 +135,67 @@ export async function listPronunciationHistory(sql: Sql, userId: string) {
   `;
 }
 
+// -- Coach conversations --------------------------------------------------
+
+export async function listConversations(sql: Sql, userId: string) {
+  return sql`
+    SELECT id, title, created_at, updated_at FROM public.ai_conversations
+    WHERE user_id = ${userId} ORDER BY updated_at DESC
+  `;
+}
+
+export async function createConversation(sql: Sql, userId: string, title: string | null) {
+  const [row] = await sql`
+    INSERT INTO public.ai_conversations (user_id, title) VALUES (${userId}, ${title})
+    RETURNING id, title, created_at, updated_at
+  `;
+  return row;
+}
+
+export async function getConversation(sql: Sql, id: string) {
+  const rows = await sql<{ id: string; user_id: string; title: string | null }[]>`
+    SELECT id, user_id, title FROM public.ai_conversations WHERE id = ${id}
+  `;
+  return rows[0] ?? null;
+}
+
+export async function setConversationTitle(sql: Sql, id: string, title: string) {
+  await sql`UPDATE public.ai_conversations SET title = ${title}, updated_at = now() WHERE id = ${id}`;
+}
+
+export async function touchConversation(sql: Sql, id: string) {
+  await sql`UPDATE public.ai_conversations SET updated_at = now() WHERE id = ${id}`;
+}
+
+export async function listMessages(sql: Sql, conversationId: string, limit = 50) {
+  const rows = await sql<{ id: string; role: string; content: string; created_at: string }[]>`
+    SELECT id, role, content, created_at FROM public.ai_messages
+    WHERE conversation_id = ${conversationId} ORDER BY created_at ASC LIMIT ${limit}
+  `;
+  return rows;
+}
+
+/** Last `limit` messages, oldest first — for building bounded LLM context. */
+export async function getRecentMessages(sql: Sql, conversationId: string, limit: number) {
+  const rows = await sql<{ role: string; content: string }[]>`
+    SELECT role, content FROM public.ai_messages
+    WHERE conversation_id = ${conversationId} ORDER BY created_at DESC LIMIT ${limit}
+  `;
+  return rows.reverse();
+}
+
+export async function insertMessage(
+  sql: Sql,
+  row: { conversationId: string; userId: string; role: "user" | "assistant"; content: string },
+) {
+  const [saved] = await sql`
+    INSERT INTO public.ai_messages (conversation_id, user_id, role, content)
+    VALUES (${row.conversationId}, ${row.userId}, ${row.role}, ${row.content})
+    RETURNING id, role, content, created_at
+  `;
+  return saved;
+}
+
 export async function getCachedStudyPack(sql: Sql, videoId: string) {
   const rows = await sql`SELECT * FROM public.video_study_packs WHERE video_id = ${videoId}`;
   return rows[0] ?? null;

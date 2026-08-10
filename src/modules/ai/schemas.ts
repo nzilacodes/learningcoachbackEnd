@@ -42,3 +42,15 @@ export const videoStudyPackQuerySchema = z.object({
   level: z.string().max(10).default("A2"),
   ageGroup: z.enum(["kids", "teens", "adults"]).default("adults"),
 });
+
+export const createConversationSchema = z.object({
+  title: z.string().trim().max(200).optional(),
+});
+
+export const conversationIdParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export const sendCoachMessageSchema = z.object({
+  content: z.string().trim().min(1).max(4000),
+});

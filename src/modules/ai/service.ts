@@ -11,6 +11,10 @@ class UpstreamAiError extends Error {
   }
 }
 
+class NotFoundError extends Error {
+  statusCode = 404;
+}
+
 export async function synthesizeSpeech(input: { text: string; voice: string; instructions?: string; speed?: number }) {
   const apiKey = requireOpenAiKey();
   const body: Record<string, unknown> = {
@@ -380,4 +384,58 @@ export async function getVideoStudyPack(sql: Sql, videoId: string, input: StudyP
   });
 
   return pack;
+}
+
+// -- Coach conversations --------------------------------------------------
+
+const COACH_SYSTEM_PROMPT =
+  "You are Coach, a friendly, encouraging English teacher inside the Learning English with Coach app. " +
+  "Keep replies concise (2-4 short paragraphs at most), adapt to the learner's apparent level, gently " +
+  "correct mistakes when relevant, and reply in whichever language the learner just wrote in (Portuguese or English).";
+
+const COACH_HISTORY_WINDOW = 20;
+
+export const listConversations = repo.listConversations;
+
+export async function createConversation(sql: Sql, userId: string, title?: string) {
+  return repo.createConversation(sql, userId, title?.trim() || null);
+}
+
+async function requireOwnedConversation(sql: Sql, userId: string, conversationId: string) {
+  const conversation = await repo.getConversation(sql, conversationId);
+  if (!conversation || conversation.user_id !== userId) throw new NotFoundError("Conversation not found");
+  return conversation;
+}
+
+export async function listMessages(sql: Sql, userId: string, conversationId: string) {
+  await requireOwnedConversation(sql, userId, conversationId);
+  return repo.listMessages(sql, conversationId);
+}
+
+export async function sendCoachMessage(sql: Sql, userId: string, conversationId: string, content: string) {
+  const conversation = await requireOwnedConversation(sql, userId, conversationId);
+
+  const userMessage = await repo.insertMessage(sql, { conversationId, userId, role: "user", content });
+  const history = await repo.getRecentMessages(sql, conversationId, COACH_HISTORY_WINDOW);
+
+  const replyText = await callChatCompletion({
+    messages: [
+      { role: "system", content: COACH_SYSTEM_PROMPT },
+      ...history.map((m) => ({ role: m.role, content: m.content })),
+    ],
+  });
+  const assistantMessage = await repo.insertMessage(sql, {
+    conversationId,
+    userId,
+    role: "assistant",
+    content: replyText,
+  });
+
+  if (conversation.title) {
+    await repo.touchConversation(sql, conversationId);
+  } else {
+    await repo.setConversationTitle(sql, conversationId, content.slice(0, 60));
+  }
+
+  return { userMessage, assistantMessage };
 }

@@ -11,6 +11,33 @@ class ConflictError extends Error {
 class ForbiddenError extends Error {
   statusCode = 403;
 }
+class BadRequestError extends Error {
+  statusCode = 400;
+}
+
+// Mirrors the curated catalog in learningcoach's src/lib/age-tracks.ts — the
+// client sends a gameId, the server decides the XP, so a request can't just
+// claim an arbitrary amount by editing the source's meta payload.
+const GAME_REGISTRY: Record<string, number> = {
+  "kids-memory-match": 30,
+  "kids-drag-animals": 25,
+  "kids-color-word": 20,
+  "kids-abc-karaoke": 40,
+  "kids-find-picture": 25,
+  "kids-fruit-puzzle": 30,
+  "teens-lyric-challenge": 60,
+  "teens-school-escape": 70,
+  "teens-slang-duel": 55,
+  "teens-chat-simulator": 45,
+  "teens-speed-quiz": 80,
+  "teens-caption-reel": 50,
+  "adults-interview-simulator": 100,
+  "adults-contract-negotiation": 90,
+  "adults-60s-pitch": 80,
+  "adults-professional-email": 60,
+  "adults-global-meeting": 85,
+  "adults-ielts-speaking": 95,
+};
 
 export type ActivitySource = (typeof ACTIVITY_SOURCES)[number];
 
@@ -29,6 +56,9 @@ const DEFAULT_REWARDS: Record<ActivitySource, { xp: number; coins: number }> = {
   // Flat reward for completing the placement diagnostic, ported from the old
   // useAwardXp(150) call in learningcoach's placement.tsx.
   diagnostic_complete: { xp: 150, coins: 0 },
+  // Unused — resolveReward() intercepts "game" and looks up GAME_REGISTRY instead,
+  // since each game has its own XP value rather than one flat per-source reward.
+  game: { xp: 0, coins: 0 },
 };
 
 function xpToLevel(xp: number): number {
@@ -39,8 +69,17 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function resolveReward(source: ActivitySource, meta: Record<string, unknown>): { xp: number; coins: number } {
+  if (source !== "game") return DEFAULT_REWARDS[source];
+
+  const gameId = typeof meta.gameId === "string" ? meta.gameId : "";
+  const xp = GAME_REGISTRY[gameId];
+  if (!xp) throw new BadRequestError(`Unknown gameId: ${gameId || "(missing)"}`);
+  return { xp, coins: Math.round(xp / 3) };
+}
+
 export async function awardActivity(sql: Sql, userId: string, source: ActivitySource, meta: Record<string, unknown>) {
-  const reward = DEFAULT_REWARDS[source];
+  const reward = resolveReward(source, meta);
   const state = await repo.getProfileGameState(sql, userId);
 
   const today = todayUtc();
@@ -178,3 +217,7 @@ export async function getXpEvents(sql: Sql, userId: string, days: number) {
   since.setDate(since.getDate() - days);
   return repo.getXpEvents(sql, userId, since.toISOString());
 }
+
+// ---------- Game play counts ----------
+
+export const getGamePlays = repo.getGamePlayCounts;

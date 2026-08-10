@@ -272,6 +272,20 @@ export async function getXpEvents(sql: Sql, userId: string, sinceDate: string) {
   `;
 }
 
+/**
+ * Global play counts per gameId over the last 7 days, across all users —
+ * powers the real "most played this week" figure on /games.
+ */
+export async function getGamePlayCounts(sql: Sql): Promise<Record<string, number>> {
+  const rows = await sql<{ game_id: string; plays: number }[]>`
+    SELECT meta->>'gameId' AS game_id, count(*)::int AS plays
+    FROM public.xp_events
+    WHERE source = 'game' AND meta->>'gameId' IS NOT NULL AND created_at >= now() - interval '7 days'
+    GROUP BY meta->>'gameId'
+  `;
+  return Object.fromEntries(rows.map((r) => [r.game_id, r.plays]));
+}
+
 export async function bumpMissionProgress(sql: Sql, userId: string, actionType: string) {
   const missions = await sql<{ id: string; target: number }[]>`
     SELECT id, target FROM public.missions WHERE action_type = ${actionType}

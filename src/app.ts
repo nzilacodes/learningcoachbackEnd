@@ -19,6 +19,7 @@ import aiRoutes from "./modules/ai/routes.js";
 import learningRoutes from "./modules/learning/routes.js";
 import adminRoutes from "./modules/admin/routes.js";
 import communityRoutes from "./modules/community/routes.js";
+import contactRoutes from "./modules/contact/routes.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -52,6 +53,7 @@ export async function buildApp() {
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
 
   app.get("/v1/health", async () => ({ status: "ok" }));
+  app.get("/v1/config", async () => ({ sandboxPaymentsEnabled: env.SANDBOX_PAYMENTS_ENABLED }));
 
   await app.register(authRoutes, { prefix: "/v1" });
   await app.register(usersRoutes, { prefix: "/v1" });
@@ -64,6 +66,7 @@ export async function buildApp() {
   await app.register(learningRoutes, { prefix: "/v1" });
   await app.register(adminRoutes, { prefix: "/v1" });
   await app.register(communityRoutes, { prefix: "/v1" });
+  await app.register(contactRoutes, { prefix: "/v1" });
 
   return app;
 }

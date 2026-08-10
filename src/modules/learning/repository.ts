@@ -19,6 +19,116 @@ export async function getProgress(sql: Sql, userId: string) {
   `;
 }
 
+export async function getLessonById(sql: Sql, id: string) {
+  const rows = await sql`SELECT * FROM public.lessons WHERE id = ${id} AND is_published = true`;
+  return rows[0] ?? null;
+}
+
+/** Unlike getLessonById, ignores is_published so admins can edit draft lessons too. */
+export async function getLessonByIdAdmin(sql: Sql, id: string) {
+  const rows = await sql`SELECT * FROM public.lessons WHERE id = ${id}`;
+  return rows[0] ?? null;
+}
+
+export type LessonPatch = {
+  title?: string;
+  summary?: string;
+  content?: unknown;
+  durationMin?: number;
+  xpReward?: number;
+  isPublished?: boolean;
+};
+
+export async function updateLesson(sql: Sql, id: string, patch: LessonPatch) {
+  const [row] = await sql`
+    UPDATE public.lessons SET
+      title = COALESCE(${patch.title ?? null}, title),
+      summary = COALESCE(${patch.summary ?? null}, summary),
+      content = COALESCE(${patch.content !== undefined ? sql.json(patch.content as any) : null}, content),
+      duration_min = COALESCE(${patch.durationMin ?? null}, duration_min),
+      xp_reward = COALESCE(${patch.xpReward ?? null}, xp_reward),
+      is_published = COALESCE(${patch.isPublished ?? null}, is_published)
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  return row ?? null;
+}
+
+// Unlike level-exam questions, lesson quiz answers aren't withheld — these are
+// low-stakes practice checks (a few XP, no progression gate), not the graded
+// assessments that unlock the next CEFR level.
+export async function listExercisesForLesson(sql: Sql, lessonId: string) {
+  return sql`
+    SELECT id, type, prompt, data, correct_answer, xp_reward, order_index
+    FROM public.exercises WHERE lesson_id = ${lessonId} ORDER BY order_index
+  `;
+}
+
+export async function listExercisesForLessonAdmin(sql: Sql, lessonId: string) {
+  return sql`SELECT * FROM public.exercises WHERE lesson_id = ${lessonId} ORDER BY order_index`;
+}
+
+export type ExerciseInput = {
+  type: string;
+  prompt: string;
+  data?: unknown;
+  correctAnswer?: unknown;
+  xpReward: number;
+  orderIndex: number;
+};
+
+export async function createExercise(sql: Sql, lessonId: string, input: ExerciseInput) {
+  const [row] = await sql`
+    INSERT INTO public.exercises (lesson_id, type, prompt, data, correct_answer, xp_reward, order_index)
+    VALUES (
+      ${lessonId}, ${input.type}, ${input.prompt},
+      ${input.data !== undefined ? sql.json(input.data as any) : null},
+      ${input.correctAnswer !== undefined ? sql.json(input.correctAnswer as any) : null},
+      ${input.xpReward}, ${input.orderIndex}
+    )
+    RETURNING *
+  `;
+  return row;
+}
+
+export type ExercisePatch = Partial<ExerciseInput>;
+
+export async function updateExercise(sql: Sql, id: string, patch: ExercisePatch) {
+  const [row] = await sql`
+    UPDATE public.exercises SET
+      type = COALESCE(${patch.type ?? null}, type),
+      prompt = COALESCE(${patch.prompt ?? null}, prompt),
+      data = COALESCE(${patch.data !== undefined ? sql.json(patch.data as any) : null}, data),
+      correct_answer = COALESCE(${patch.correctAnswer !== undefined ? sql.json(patch.correctAnswer as any) : null}, correct_answer),
+      xp_reward = COALESCE(${patch.xpReward ?? null}, xp_reward),
+      order_index = COALESCE(${patch.orderIndex ?? null}, order_index)
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  return row ?? null;
+}
+
+export async function deleteExercise(sql: Sql, id: string) {
+  await sql`DELETE FROM public.exercises WHERE id = ${id}`;
+}
+
+export async function getLessonProgressRow(sql: Sql, userId: string, unitId: string, lessonId: string) {
+  const rows = await sql<{ completed_at: string | null }[]>`
+    SELECT completed_at FROM public.lesson_progress
+    WHERE user_id = ${userId} AND unit_id = ${unitId} AND lesson_id = ${lessonId}
+  `;
+  return rows[0] ?? null;
+}
+
+export async function completeLessonProgress(sql: Sql, userId: string, unitId: string, lessonId: string) {
+  await sql`
+    INSERT INTO public.lesson_progress (user_id, unit_id, lesson_id, progress_pct, completed_at)
+    VALUES (${userId}, ${unitId}, ${lessonId}, 100, now())
+    ON CONFLICT (user_id, unit_id, lesson_id) DO UPDATE SET
+      progress_pct = 100, completed_at = COALESCE(lesson_progress.completed_at, now()), updated_at = now()
+  `;
+}
+
 export type StudyStats = { streak_days: number; last_activity_date: string | null; xp: number };
 
 export async function getStudyStats(sql: Sql, userId: string): Promise<StudyStats> {
