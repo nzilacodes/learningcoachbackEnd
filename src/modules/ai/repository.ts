@@ -42,7 +42,7 @@ type Mispronounced = { word: string; expected_ipa: string; heard: string; tip: s
 
 type ReadingAssessmentRow = {
   userId: string;
-  lessonId?: string;
+  lessonId?: string | null;
   passage: string;
   passageKey: string;
   transcript: string;
@@ -98,7 +98,7 @@ type PhonemeIssue = { sound: string; tip: string };
 
 type PronunciationAssessmentRow = {
   userId: string;
-  lessonId?: string;
+  lessonId?: string | null;
   word: string;
   expectedText: string;
   transcribedText: string;

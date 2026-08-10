@@ -145,7 +145,7 @@ type ReadingAssessInput = {
   passage: string;
   transcript: string;
   durationSeconds: number;
-  lessonId?: string;
+  lessonId?: string | null;
 };
 
 export async function assessReading(sql: Sql, userId: string, input: ReadingAssessInput) {
@@ -233,7 +233,7 @@ type PronunciationAssessInput = {
   word: string;
   transcribed: string;
   ipa: string;
-  lessonId?: string;
+  lessonId?: string | null;
 };
 
 export async function assessPronunciation(sql: Sql, userId: string, input: PronunciationAssessInput) {

@@ -16,7 +16,7 @@ export const readingAssessSchema = z.object({
   passage: z.string().min(10).max(4000),
   transcript: z.string().max(6000).default(""),
   durationSeconds: z.number().int().min(1).max(1800),
-  lessonId: z.string().uuid().optional(),
+  lessonId: z.string().uuid().nullable().optional(),
 });
 
 export const readingHistoryQuerySchema = z.object({
@@ -27,7 +27,7 @@ export const pronunciationAssessSchema = z.object({
   word: z.string().min(1).max(120),
   transcribed: z.string().default(""),
   ipa: z.string().default(""),
-  lessonId: z.string().uuid().optional(),
+  lessonId: z.string().uuid().nullable().optional(),
 });
 
 export const videoIdParamsSchema = z.object({
