@@ -25,7 +25,9 @@ export default async function learningRoutes(fastify: FastifyInstance) {
     return service.getProgress(request.server.sql, request.userId);
   });
 
-  fastify.get("/lessons/:id", { preHandler: requireAuth }, async (request) => {
+  // Public like /courses — lets the marketing site link to a real lesson as a
+  // demo preview. Only completing a lesson (below) requires a session.
+  fastify.get("/lessons/:id", async (request) => {
     const { id } = lessonIdParamsSchema.parse(request.params);
     return service.getLessonDetail(request.server.sql, id);
   });
