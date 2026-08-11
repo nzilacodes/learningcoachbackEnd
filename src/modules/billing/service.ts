@@ -55,15 +55,12 @@ export async function activatePayment(sql: Sql, paymentId: string, providerTrans
   const payment = await repo.getPaymentById(sql, paymentId);
   if (!payment) throw new NotFoundError("Payment not found");
   if (payment.status === "paid") return { ...payment, activationCode: null };
-  const updated = await repo.markPaymentActivated(sql, paymentId, providerTransactionId);
-  // The activate_subscription_on_payment DB trigger already activated the linked
-  // subscription (status/starts_at/expires_at) on the status->paid transition above;
-  // it doesn't mint a human-readable code, so that part is finished here.
-  let activationCode: string | null = null;
-  if (payment.subscription_id) {
-    activationCode = generateActivationCode();
-    await repo.setSubscriptionActivationCode(sql, payment.subscription_id, activationCode);
-  }
+  // The activate_subscription_on_payment DB trigger activates the linked
+  // subscription (status/starts_at/expires_at) on the status->paid transition;
+  // it doesn't mint a human-readable code, so that part happens here, in the
+  // same transaction as the paid-status update (see activatePaymentAtomic).
+  const activationCode = payment.subscription_id ? generateActivationCode() : null;
+  const updated = await repo.activatePaymentAtomic(sql, paymentId, activationCode, providerTransactionId);
   return { ...updated, activationCode };
 }
 

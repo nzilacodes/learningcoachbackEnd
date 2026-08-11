@@ -29,6 +29,21 @@ export async function createSubscriptionOrder(
     `;
     if (!plan) throw new NotAvailableError("Plan not available");
 
+    // Idempotency: a double-click or resubmit shouldn't create a second
+    // pending subscription+payment for the same plan — reuse the existing one.
+    const [existing] = await tx<
+      { subscription_id: string; payment_id: string; reference: string; entity: string; invoice_number: string; amount_kz: number }[]
+    >`
+      SELECT s.id AS subscription_id, p.id AS payment_id, p.reference, p.entity, p.invoice_number, p.amount_kz
+      FROM public.subscriptions s
+      JOIN public.payments p ON p.subscription_id = s.id
+      WHERE s.user_id = ${userId} AND s.plan_id = ${params.planId}
+        AND s.status = 'pending' AND p.status = 'pending'
+      ORDER BY s.created_at DESC
+      LIMIT 1
+    `;
+    if (existing) return existing;
+
     const reference = String(Math.floor(100000000 + crypto.randomInt(900000000)));
     const entity = "11333";
 
@@ -121,18 +136,29 @@ export async function listPaymentsAdmin(sql: Sql, limit: number, offset: number)
   return { items, total: Number(countRow!.count) };
 }
 
-export async function markPaymentActivated(sql: Sql, id: string, providerTransactionId?: string) {
-  const [row] = await sql`
-    UPDATE public.payments
-    SET status = 'paid', provider_transaction_id = COALESCE(${providerTransactionId ?? null}, provider_transaction_id)
-    WHERE id = ${id}
-    RETURNING *
-  `;
-  return row;
-}
-
-export async function setSubscriptionActivationCode(sql: Sql, subscriptionId: string, code: string) {
-  await sql`UPDATE public.subscriptions SET activation_code = ${code} WHERE id = ${subscriptionId}`;
+/**
+ * Marks the payment paid and (if it funds a subscription) stamps the
+ * activation code in a single transaction — a crash between the two used to
+ * be able to leave an active, paid subscription with activation_code=NULL.
+ */
+export async function activatePaymentAtomic(
+  sql: Sql,
+  id: string,
+  activationCode: string | null,
+  providerTransactionId?: string,
+) {
+  return sql.begin(async (tx) => {
+    const [payment] = await tx`
+      UPDATE public.payments
+      SET status = 'paid', provider_transaction_id = COALESCE(${providerTransactionId ?? null}, provider_transaction_id)
+      WHERE id = ${id}
+      RETURNING *
+    `;
+    if (payment?.subscription_id && activationCode) {
+      await tx`UPDATE public.subscriptions SET activation_code = ${activationCode} WHERE id = ${payment.subscription_id}`;
+    }
+    return payment;
+  });
 }
 
 export async function cancelPaymentAdmin(sql: Sql, id: string) {

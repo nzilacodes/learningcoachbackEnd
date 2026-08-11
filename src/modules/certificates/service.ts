@@ -1,5 +1,6 @@
 import type { Sql } from "postgres";
 import type { CefrLevel } from "../../lib/cefr.js";
+import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
 import * as repo from "./repository.js";
 
 class NotEligibleError extends Error {
@@ -20,6 +21,13 @@ export async function issueCertificate(
 ) {
   const existing = await repo.findExistingCertificate(sql, userId, input.level);
   if (existing) return existing;
+
+  // Certificates are a paid-plan feature (see pricing copy) — checked after
+  // the "already issued" short-circuit so a lapsed subscription never
+  // invalidates a certificate the user already earned.
+  if (!(await hasActiveSubscription(sql, userId))) {
+    throw new PaymentRequiredError("Certificates require an active subscription. Upgrade to issue one.");
+  }
 
   const passedAttempt = await repo.findPassedExamAttempt(sql, userId, input.level);
   if (!passedAttempt) {

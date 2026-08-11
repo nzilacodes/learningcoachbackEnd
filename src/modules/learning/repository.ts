@@ -115,6 +115,24 @@ export async function deleteExercise(sql: Sql, id: string) {
   await sql`DELETE FROM public.exercises WHERE id = ${id}`;
 }
 
+export async function isLessonAlreadyCompleted(sql: Sql, userId: string, lessonId: string): Promise<boolean> {
+  const rows = await sql`
+    SELECT 1 FROM public.lesson_progress
+    WHERE user_id = ${userId} AND lesson_id = ${lessonId} AND completed_at IS NOT NULL
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
+/** Distinct lessons completed since `since` — used for the free plan's weekly cap. */
+export async function countLessonsCompletedSince(sql: Sql, userId: string, since: Date) {
+  const [row] = await sql<{ count: string }[]>`
+    SELECT count(*)::text FROM public.lesson_progress
+    WHERE user_id = ${userId} AND completed_at >= ${since.toISOString()}
+  `;
+  return Number(row!.count);
+}
+
 /**
  * Upserts progress to 100%/completed and reports whether *this* call was the
  * one that first completed it — in one atomic statement, so two concurrent

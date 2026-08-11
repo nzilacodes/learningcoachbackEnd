@@ -60,6 +60,13 @@ export async function removeMember(sql: Sql, userId: string, classId: string, st
   await repo.removeMember(sql, classId, studentId);
 }
 
+export async function leaveClass(sql: Sql, userId: string, classId: string) {
+  const cls = await repo.getClassById(sql, classId);
+  if (!cls) throw new NotFoundError("Class not found");
+  if (cls.owner_id === userId) throw new ConflictError("Class owners can't leave their own class — delete it instead");
+  await repo.removeMember(sql, classId, userId);
+}
+
 export async function deleteClassAsOwner(sql: Sql, userId: string, classId: string) {
   await requireOwnedClass(sql, userId, classId);
   await repo.deleteClass(sql, classId);

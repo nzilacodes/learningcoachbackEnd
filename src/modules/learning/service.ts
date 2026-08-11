@@ -1,10 +1,14 @@
 import type { Sql } from "postgres";
 import * as repo from "./repository.js";
 import { awardActivity } from "../gamification/service.js";
+import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
 
 class NotFoundError extends Error {
   statusCode = 404;
 }
+
+// Matches the "3 aulas / semana" free-plan copy shown at onboarding/checkout.
+const FREE_WEEKLY_LESSON_LIMIT = 3;
 
 export async function getCurriculum(sql: Sql) {
   const [courses, units, lessons] = await Promise.all([
@@ -61,6 +65,20 @@ export async function deleteExerciseAdmin(sql: Sql, id: string) {
 export async function completeLesson(sql: Sql, userId: string, lessonId: string) {
   const lesson = await repo.getLessonById(sql, lessonId);
   if (!lesson) throw new NotFoundError("Lesson not found");
+
+  // Free plan: capped at FREE_WEEKLY_LESSON_LIMIT new completions per rolling
+  // week. Re-finishing an already-completed lesson never counts against the
+  // cap (checked first, cheaply, before touching the subscription table).
+  const alreadyDone = await repo.isLessonAlreadyCompleted(sql, userId, lessonId);
+  if (!alreadyDone && !(await hasActiveSubscription(sql, userId))) {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const completedThisWeek = await repo.countLessonsCompletedSince(sql, userId, since);
+    if (completedThisWeek >= FREE_WEEKLY_LESSON_LIMIT) {
+      throw new PaymentRequiredError(
+        `Free plan limit reached (${FREE_WEEKLY_LESSON_LIMIT} lessons/week). Upgrade to keep learning.`,
+      );
+    }
+  }
 
   const justCompleted = await repo.completeLessonProgress(sql, userId, lesson.unit_id, lessonId);
 

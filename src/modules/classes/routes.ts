@@ -39,6 +39,12 @@ export default async function classesRoutes(fastify: FastifyInstance) {
     },
   );
 
+  fastify.delete("/classes/:id/leave", { preHandler: requireAuth }, async (request, reply) => {
+    const { id } = classIdParamsSchema.parse(request.params);
+    await service.leaveClass(request.server.sql, request.userId, id);
+    return reply.status(204).send();
+  });
+
   fastify.delete("/classes/:id", { preHandler: requireAuth }, async (request, reply) => {
     const { id } = classIdParamsSchema.parse(request.params);
     await service.deleteClassAsOwner(request.server.sql, request.userId, id);

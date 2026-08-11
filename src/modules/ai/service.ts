@@ -9,6 +9,7 @@ import {
   fetchWithTimeout,
   requireOpenAiKey,
 } from "../../lib/ai-gateway.js";
+import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
 import * as repo from "./repository.js";
 
 class UpstreamAiError extends Error {
@@ -249,6 +250,10 @@ type PronunciationAssessInput = {
 };
 
 export async function assessPronunciation(sql: Sql, userId: string, input: PronunciationAssessInput) {
+  // "Análise de pronúncia" is listed as a paid-plan feature in the pricing copy.
+  if (!(await hasActiveSubscription(sql, userId))) {
+    throw new PaymentRequiredError("Pronunciation analysis requires an active subscription.");
+  }
   const content = await callChatCompletion({
     response_format: { type: "json_object" },
     messages: [
