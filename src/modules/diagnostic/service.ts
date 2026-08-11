@@ -62,6 +62,11 @@ export async function submitDiagnostic(sql: Sql, userId: string, input: SubmitIn
 
   const content = await callChatCompletion({
     response_format: { type: "json_object" },
+    // Larger than the library default (1000): this response includes a 4-week
+    // learning_plan array plus strengths/weaknesses/feedback — truncation here
+    // would silently fall back to a generic A1 result for the user's one
+    // placement-test evaluation.
+    max_tokens: 2000,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },

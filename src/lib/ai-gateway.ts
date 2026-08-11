@@ -51,12 +51,17 @@ export async function fetchWithTimeout(
   }
 }
 
+// Default cap on every chat completion — without it, response length (and
+// cost/latency) is unbounded. Callers with a genuine need for longer output
+// (e.g. the study-pack generator) can still override via `body.max_tokens`.
+const DEFAULT_MAX_TOKENS = 1000;
+
 export async function callChatCompletion(body: Record<string, unknown>): Promise<string> {
   const apiKey = requireOpenAiKey();
   const res = await fetchWithTimeout(AI_CHAT_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: CHAT_MODEL, ...body }),
+    body: JSON.stringify({ model: CHAT_MODEL, max_tokens: DEFAULT_MAX_TOKENS, ...body }),
   });
   if (!res.ok) {
     const msg = await res.text().catch(() => "");

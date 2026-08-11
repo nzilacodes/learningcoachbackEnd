@@ -68,6 +68,19 @@ function loadEnv() {
     process.exit(1);
   }
   const data = parsed.data;
+
+  // Without SMTP, sendMail() falls back to console.log-ing the full message —
+  // including password-reset links/tokens. Fine for local dev; in production
+  // that's the reset token landing in server logs. Loud warning rather than a
+  // boot-time crash (process.exit) here — refusing to boot is the more
+  // correct long-term posture, but flipping that on unconditionally risks
+  // taking prod down if SMTP genuinely isn't set there yet; that's an
+  // operational call for whoever controls the deployment, not this commit.
+  const smtpConfigured = Boolean(data.SMTP_HOST && data.SMTP_USER && data.SMTP_PASS);
+  if (data.NODE_ENV === "production" && !smtpConfigured) {
+    console.error("WARNING: SMTP is not configured in production — password-reset tokens will be written to server logs via the console mailer fallback. Set SMTP_HOST/SMTP_USER/SMTP_PASS.");
+  }
+
   return {
     ...data,
     COOKIE_SECURE: data.COOKIE_SECURE === undefined ? data.NODE_ENV === "production" : data.COOKIE_SECURE === "true",

@@ -375,6 +375,9 @@ export async function getVideoStudyPack(sql: Sql, videoId: string, input: StudyP
   try {
     const content = await callChatCompletion({
       response_format: { type: "json_object" },
+      // Larger than the library default (1000): a study pack includes a
+      // transcript excerpt, vocabulary list and quiz questions.
+      max_tokens: 2000,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },

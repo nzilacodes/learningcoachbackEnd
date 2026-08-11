@@ -149,6 +149,12 @@ export async function changePassword(sql: Sql, userId: string, currentPassword: 
   if (!valid) throw new UnauthorizedError("Current password is incorrect");
   const passwordHash = await bcrypt.hash(newPassword, 12);
   await repo.updatePasswordHash(sql, userId, passwordHash);
+  // Same reasoning as resetPassword: a session hijacked before the password
+  // change (e.g. via a stolen refresh token) shouldn't survive it. The caller's
+  // own session ends too — same widely-used tradeoff as resetPassword, which
+  // already does this; the frontend's normal 401 handling covers the resulting
+  // forced re-login.
+  await repo.revokeAllRefreshTokensForUser(sql, userId);
 }
 
 export async function getMe(sql: Sql, userId: string) {

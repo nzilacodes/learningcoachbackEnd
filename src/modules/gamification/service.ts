@@ -24,6 +24,21 @@ class RateLimitedError extends Error {
 // requiring a full play-session/proof-of-play system.
 const GAME_COOLDOWN_SECONDS = 15;
 
+// Same idea as GAME_COOLDOWN_SECONDS, generalized to every other client-awardable
+// source: POST /v1/xp/events previously had NO cooldown at all for anything but
+// "game", so a client could repeat-fire e.g. {"source":"diagnostic_complete"}
+// and farm 150 XP per call with no rate limit beyond the global 120/min. Values
+// reflect a rough floor for how often the real activity could plausibly recur.
+const SOURCE_COOLDOWN_SECONDS: Partial<Record<ActivitySource, number>> = {
+  reading: 60,
+  watch_video: 30,
+  exercise: 30,
+  speaking: 30,
+  listening: 30,
+  daily_study: 30,
+  diagnostic_complete: 24 * 60 * 60,
+};
+
 // Mirrors the curated catalog in learningcoach's src/lib/age-tracks.ts — the
 // client sends a gameId, the server decides the XP, so a request can't just
 // claim an arbitrary amount by editing the source's meta payload.
@@ -101,6 +116,14 @@ export async function awardActivity(sql: Sql, userId: string, source: ActivitySo
       await tx`SELECT pg_advisory_xact_lock(hashtext(${userId + ":" + gameId}))`;
       if (await repo.hasRecentGameEvent(tx, userId, gameId, GAME_COOLDOWN_SECONDS)) {
         throw new RateLimitedError("You just played this game — wait a bit before playing it again.");
+      }
+    } else {
+      const cooldown = SOURCE_COOLDOWN_SECONDS[source];
+      if (cooldown) {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${userId + ":" + source}))`;
+        if (await repo.hasRecentSourceEvent(tx, userId, source, cooldown)) {
+          throw new RateLimitedError(`You already earned a reward for "${source}" recently — try again later.`);
+        }
       }
     }
 
@@ -181,14 +204,14 @@ export async function claimMission(sql: Sql, userId: string, missionId: string) 
   const periodKey = keys[mission.scope];
   const userMission = periodKey ? await repo.getUserMission(sql, userId, missionId, periodKey) : null;
   if (!userMission || !userMission.completed_at) throw new ForbiddenError("Mission not completed yet");
-  if (userMission.claimed_at) throw new ConflictError("Mission already claimed");
 
-  await repo.claimUserMission(sql, userId, userMission.id, {
+  const claimed = await repo.claimUserMission(sql, userId, userMission.id, {
     xp: mission.xp_reward,
     coins: mission.coin_reward,
     code: mission.code,
     missionId: mission.id,
   });
+  if (!claimed) throw new ConflictError("Mission already claimed");
   return { xp: mission.xp_reward, coins: mission.coin_reward };
 }
 
@@ -200,10 +223,9 @@ export const listUserInventory = repo.listUserInventory;
 export async function purchaseItem(sql: Sql, userId: string, itemId: string) {
   const item = await repo.getShopItem(sql, itemId);
   if (!item || !item.is_active) throw new NotFoundError("Item not available");
-  const stats = await repo.getGamificationStats(sql, userId);
-  if (stats.coins < item.cost_coins) throw new ForbiddenError("Insufficient coins");
-  await repo.purchaseItem(sql, userId, itemId, item.cost_coins);
-  return { remainingCoins: stats.coins - item.cost_coins };
+  const remainingCoins = await repo.purchaseItem(sql, userId, itemId, item.cost_coins);
+  if (remainingCoins == null) throw new ForbiddenError("Insufficient coins");
+  return { remainingCoins };
 }
 
 export async function setInventoryEquipped(sql: Sql, userId: string, itemId: string, equipped: boolean) {

@@ -140,7 +140,7 @@ export async function listPronunciationHistory(sql: Sql, userId: string) {
 export async function listConversations(sql: Sql, userId: string) {
   return sql`
     SELECT id, title, created_at, updated_at FROM public.ai_conversations
-    WHERE user_id = ${userId} ORDER BY updated_at DESC
+    WHERE user_id = ${userId} ORDER BY updated_at DESC LIMIT 100
   `;
 }
 

@@ -22,6 +22,17 @@ export async function hasRecentGameEvent(sql: SqlClient, userId: string, gameId:
   return rows.length > 0;
 }
 
+/** Same cooldown check as hasRecentGameEvent, generalized to any non-game source. */
+export async function hasRecentSourceEvent(sql: SqlClient, userId: string, source: string, cooldownSeconds: number): Promise<boolean> {
+  const rows = await sql`
+    SELECT 1 FROM public.xp_events
+    WHERE user_id = ${userId} AND source = ${source}
+      AND created_at >= now() - make_interval(secs => ${cooldownSeconds})
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
 export async function getProfileGameState(sql: SqlClient, userId: string): Promise<ProfileGameState> {
   const rows = await sql<ProfileGameState[]>`
     SELECT xp, level, streak, coins, last_active_date::text FROM public.profiles WHERE id = ${userId}
@@ -125,24 +136,47 @@ export async function getUserMission(sql: Sql, userId: string, missionId: string
   return rows[0] ?? null;
 }
 
+/**
+ * Returns false (no-op) if the mission was already claimed — the UPDATE's own
+ * `WHERE claimed_at IS NULL` makes the claim-check-then-write atomic, closing
+ * the TOCTOU window two concurrent claim requests would otherwise race through.
+ */
 export async function claimUserMission(
   sql: Sql,
   userId: string,
   userMissionId: string,
   reward: { xp: number; coins: number; code: string; missionId: string },
-) {
-  await sql.begin(async (tx) => {
-    await tx`UPDATE public.user_missions SET claimed_at = now() WHERE id = ${userMissionId}`;
+): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    const [claimed] = await tx<{ id: string }[]>`
+      UPDATE public.user_missions SET claimed_at = now()
+      WHERE id = ${userMissionId} AND claimed_at IS NULL
+      RETURNING id
+    `;
+    if (!claimed) return false;
+
     const [profile] = await tx<{ xp: number }[]>`SELECT xp FROM public.profiles WHERE id = ${userId}`;
     const newXp = (profile?.xp ?? 0) + reward.xp;
     await tx`
       UPDATE public.profiles SET xp = ${newXp}, coins = coins + ${reward.coins}, level = ${xpToLevelSql(newXp)}
       WHERE id = ${userId}
     `;
+    // Keep user_stats.xp (read by the leaderboard and dashboard) in sync with
+    // profiles.xp (read by rewards.tsx) — previously only awardActivity() did
+    // this, so a claimed mission's XP silently never showed up in either.
+    const [stats] = await tx<{ streak_days: number; last_activity_date: string | null }[]>`
+      SELECT streak_days, last_activity_date::text FROM public.user_stats WHERE user_id = ${userId}
+    `;
+    await tx`
+      INSERT INTO public.user_stats (user_id, xp, streak_days, last_activity_date, updated_at)
+      VALUES (${userId}, ${newXp}, ${stats?.streak_days ?? 0}, ${stats?.last_activity_date ?? null}, now())
+      ON CONFLICT (user_id) DO UPDATE SET xp = EXCLUDED.xp, updated_at = now()
+    `;
     await tx`
       INSERT INTO public.xp_events (user_id, source, amount, coins, meta)
       VALUES (${userId}, ${"mission:" + reward.code}, ${reward.xp}, ${reward.coins}, ${sql.json({ mission_id: reward.missionId })})
     `;
+    return true;
   });
 }
 
@@ -173,13 +207,26 @@ export async function listUserInventory(sql: Sql, userId: string) {
   `;
 }
 
-export async function purchaseItem(sql: Sql, userId: string, itemId: string, cost: number) {
-  await sql.begin(async (tx) => {
-    await tx`UPDATE public.profiles SET coins = coins - ${cost} WHERE id = ${userId}`;
+/**
+ * Returns the remaining coin balance, or null if the purchase was rejected
+ * for insufficient funds. The `WHERE coins >= cost` guard makes the
+ * balance-check-then-deduct atomic — without it, two concurrent purchases
+ * could each read a sufficient balance before either commits, both deduct,
+ * and drive coins negative.
+ */
+export async function purchaseItem(sql: Sql, userId: string, itemId: string, cost: number): Promise<number | null> {
+  return sql.begin(async (tx) => {
+    const [row] = await tx<{ coins: number }[]>`
+      UPDATE public.profiles SET coins = coins - ${cost}
+      WHERE id = ${userId} AND coins >= ${cost}
+      RETURNING coins
+    `;
+    if (!row) return null;
     await tx`
       INSERT INTO public.user_inventory (user_id, item_id) VALUES (${userId}, ${itemId})
       ON CONFLICT DO NOTHING
     `;
+    return row.coins;
   });
 }
 

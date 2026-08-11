@@ -48,11 +48,15 @@ export default async function authRoutes(fastify: FastifyInstance) {
     return { ok: true };
   });
 
-  fastify.post("/auth/forgot-password", async (request) => {
-    const { email } = forgotPasswordSchema.parse(request.body);
-    await service.requestPasswordReset(request.server.sql, email);
-    return { ok: true };
-  });
+  fastify.post(
+    "/auth/forgot-password",
+    { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } },
+    async (request) => {
+      const { email } = forgotPasswordSchema.parse(request.body);
+      await service.requestPasswordReset(request.server.sql, email);
+      return { ok: true };
+    },
+  );
 
   fastify.post("/auth/reset-password", async (request) => {
     const { token, newPassword } = resetPasswordSchema.parse(request.body);

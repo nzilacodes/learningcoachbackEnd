@@ -93,11 +93,15 @@ export default async function aiRoutes(fastify: FastifyInstance) {
     return service.listConversations(request.server.sql, request.userId);
   });
 
-  fastify.post("/ai/conversations", { preHandler: requireAuth }, async (request, reply) => {
-    const { title } = createConversationSchema.parse(request.body ?? {});
-    const conversation = await service.createConversation(request.server.sql, request.userId, title);
-    return reply.status(201).send(conversation);
-  });
+  fastify.post(
+    "/ai/conversations",
+    { preHandler: requireAuth, config: { rateLimit: AI_RATE_LIMIT } },
+    async (request, reply) => {
+      const { title } = createConversationSchema.parse(request.body ?? {});
+      const conversation = await service.createConversation(request.server.sql, request.userId, title);
+      return reply.status(201).send(conversation);
+    },
+  );
 
   fastify.get("/ai/conversations/:id/messages", { preHandler: requireAuth }, async (request) => {
     const { id } = conversationIdParamsSchema.parse(request.params);
