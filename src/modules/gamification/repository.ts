@@ -1,4 +1,8 @@
-import type { Sql } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
+
+// Accepts either the top-level connection or a sql.begin() transaction handle —
+// awardActivity() runs its whole read-check-write sequence inside a transaction.
+type SqlClient = Sql | TransactionSql;
 
 export type ProfileGameState = {
   xp: number;
@@ -8,7 +12,7 @@ export type ProfileGameState = {
   last_active_date: string | null;
 };
 
-export async function hasRecentGameEvent(sql: Sql, userId: string, gameId: string, cooldownSeconds: number): Promise<boolean> {
+export async function hasRecentGameEvent(sql: SqlClient, userId: string, gameId: string, cooldownSeconds: number): Promise<boolean> {
   const rows = await sql`
     SELECT 1 FROM public.xp_events
     WHERE user_id = ${userId} AND source = 'game' AND meta->>'gameId' = ${gameId}
@@ -18,7 +22,7 @@ export async function hasRecentGameEvent(sql: Sql, userId: string, gameId: strin
   return rows.length > 0;
 }
 
-export async function getProfileGameState(sql: Sql, userId: string): Promise<ProfileGameState> {
+export async function getProfileGameState(sql: SqlClient, userId: string): Promise<ProfileGameState> {
   const rows = await sql<ProfileGameState[]>`
     SELECT xp, level, streak, coins, last_active_date::text FROM public.profiles WHERE id = ${userId}
   `;
@@ -26,7 +30,7 @@ export async function getProfileGameState(sql: Sql, userId: string): Promise<Pro
 }
 
 export async function updateProfileGameState(
-  sql: Sql,
+  sql: SqlClient,
   userId: string,
   patch: { xp: number; level: number; streak: number; coins: number; last_active_date: string },
 ) {
@@ -38,7 +42,7 @@ export async function updateProfileGameState(
 }
 
 export async function upsertUserStats(
-  sql: Sql,
+  sql: SqlClient,
   params: { userId: string; xp: number; streakDays: number; lastActivityDate: string },
 ) {
   await sql`
@@ -51,7 +55,7 @@ export async function upsertUserStats(
 }
 
 export async function insertXpEvent(
-  sql: Sql,
+  sql: SqlClient,
   params: { userId: string; source: string; amount: number; coins: number; meta: Record<string, unknown> },
 ) {
   await sql`
@@ -296,7 +300,7 @@ export async function getGamePlayCounts(sql: Sql): Promise<Record<string, number
   return Object.fromEntries(rows.map((r) => [r.game_id, r.plays]));
 }
 
-export async function bumpMissionProgress(sql: Sql, userId: string, actionType: string) {
+export async function bumpMissionProgress(sql: SqlClient, userId: string, actionType: string) {
   const missions = await sql<{ id: string; target: number }[]>`
     SELECT id, target FROM public.missions WHERE action_type = ${actionType}
   `;

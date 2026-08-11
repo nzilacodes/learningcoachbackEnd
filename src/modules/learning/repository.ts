@@ -77,6 +77,8 @@ export type ExerciseInput = {
   orderIndex: number;
 };
 
+// order_index is computed here (max + 1), not taken from the client — the
+// admin UI doesn't track a reliable "next" value across concurrent adds.
 export async function createExercise(sql: Sql, lessonId: string, input: ExerciseInput) {
   const [row] = await sql`
     INSERT INTO public.exercises (lesson_id, type, prompt, data, correct_answer, xp_reward, order_index)
@@ -84,7 +86,8 @@ export async function createExercise(sql: Sql, lessonId: string, input: Exercise
       ${lessonId}, ${input.type}, ${input.prompt},
       ${input.data !== undefined ? sql.json(input.data as any) : null},
       ${input.correctAnswer !== undefined ? sql.json(input.correctAnswer as any) : null},
-      ${input.xpReward}, ${input.orderIndex}
+      ${input.xpReward},
+      COALESCE((SELECT max(order_index) + 1 FROM public.exercises WHERE lesson_id = ${lessonId}), 0)
     )
     RETURNING *
   `;

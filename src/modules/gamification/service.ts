@@ -90,43 +90,51 @@ function resolveReward(source: ActivitySource, meta: Record<string, unknown>): {
 export async function awardActivity(sql: Sql, userId: string, source: ActivitySource, meta: Record<string, unknown>) {
   const reward = resolveReward(source, meta);
 
-  if (source === "game") {
-    const gameId = String(meta.gameId);
-    if (await repo.hasRecentGameEvent(sql, userId, gameId, GAME_COOLDOWN_SECONDS)) {
-      throw new RateLimitedError("You just played this game — wait a bit before playing it again.");
+  // The whole read-check-write sequence runs in one transaction so the game
+  // cooldown check and the resulting insert can't race across two concurrent
+  // requests. For "game" sources, an advisory lock scoped to (userId, gameId)
+  // additionally serializes concurrent plays of the *same* game by the same
+  // user, closing the TOCTOU window between the cooldown check and the insert.
+  return sql.begin(async (tx) => {
+    if (source === "game") {
+      const gameId = String(meta.gameId);
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${userId + ":" + gameId}))`;
+      if (await repo.hasRecentGameEvent(tx, userId, gameId, GAME_COOLDOWN_SECONDS)) {
+        throw new RateLimitedError("You just played this game — wait a bit before playing it again.");
+      }
     }
-  }
 
-  const state = await repo.getProfileGameState(sql, userId);
+    const state = await repo.getProfileGameState(tx, userId);
 
-  const today = todayUtc();
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-  let streak: number;
-  if (!state.last_active_date || state.last_active_date < yesterday) {
-    streak = 1;
-  } else if (state.last_active_date === yesterday) {
-    streak = state.streak + 1;
-  } else {
-    streak = Math.max(state.streak, 1);
-  }
+    const today = todayUtc();
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    let streak: number;
+    if (!state.last_active_date || state.last_active_date < yesterday) {
+      streak = 1;
+    } else if (state.last_active_date === yesterday) {
+      streak = state.streak + 1;
+    } else {
+      streak = Math.max(state.streak, 1);
+    }
 
-  const newXp = state.xp + reward.xp;
-  const newLevel = xpToLevel(newXp);
-  const newCoins = state.coins + reward.coins;
+    const newXp = state.xp + reward.xp;
+    const newLevel = xpToLevel(newXp);
+    const newCoins = state.coins + reward.coins;
 
-  await repo.insertXpEvent(sql, { userId, source, amount: reward.xp, coins: reward.coins, meta });
-  await repo.updateProfileGameState(sql, userId, { xp: newXp, level: newLevel, streak, coins: newCoins, last_active_date: today });
-  await repo.upsertUserStats(sql, { userId, xp: newXp, streakDays: streak, lastActivityDate: today });
-  await repo.bumpMissionProgress(sql, userId, source);
+    await repo.insertXpEvent(tx, { userId, source, amount: reward.xp, coins: reward.coins, meta });
+    await repo.updateProfileGameState(tx, userId, { xp: newXp, level: newLevel, streak, coins: newCoins, last_active_date: today });
+    await repo.upsertUserStats(tx, { userId, xp: newXp, streakDays: streak, lastActivityDate: today });
+    await repo.bumpMissionProgress(tx, userId, source);
 
-  return {
-    xp: newXp,
-    gained: reward.xp,
-    level: newLevel,
-    level_up: newLevel > state.level,
-    streak,
-    coins_gained: reward.coins,
-  };
+    return {
+      xp: newXp,
+      gained: reward.xp,
+      level: newLevel,
+      level_up: newLevel > state.level,
+      streak,
+      coins_gained: reward.coins,
+    };
+  });
 }
 
 // ---------- Period keys (daily/weekly/monthly mission buckets) ----------
