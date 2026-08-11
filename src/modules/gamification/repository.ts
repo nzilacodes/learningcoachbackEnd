@@ -90,15 +90,14 @@ export async function listActiveMissions(sql: Sql) {
 
 export async function ensureUserMissions(sql: Sql, userId: string, periodKeys: Record<string, string>) {
   const missions = await sql<{ id: string; scope: string }[]>`SELECT id, scope FROM public.missions WHERE is_active = true`;
-  for (const m of missions) {
-    const key = periodKeys[m.scope];
-    if (!key) continue;
-    await sql`
-      INSERT INTO public.user_missions (user_id, mission_id, period_key)
-      VALUES (${userId}, ${m.id}, ${key})
-      ON CONFLICT DO NOTHING
-    `;
-  }
+  const rows = missions
+    .map((m) => ({ user_id: userId, mission_id: m.id, period_key: periodKeys[m.scope] }))
+    .filter((r): r is { user_id: string; mission_id: string; period_key: string } => Boolean(r.period_key));
+  if (rows.length === 0) return;
+  await sql`
+    INSERT INTO public.user_missions ${sql(rows, "user_id", "mission_id", "period_key")}
+    ON CONFLICT DO NOTHING
+  `;
 }
 
 export async function listUserMissions(sql: Sql, userId: string, periodKeys: Record<string, string>) {
@@ -301,25 +300,16 @@ export async function getGamePlayCounts(sql: Sql): Promise<Record<string, number
 }
 
 export async function bumpMissionProgress(sql: SqlClient, userId: string, actionType: string) {
-  const missions = await sql<{ id: string; target: number }[]>`
-    SELECT id, target FROM public.missions WHERE action_type = ${actionType}
+  // Single set-based UPDATE instead of a per-mission SELECT+UPDATE loop —
+  // this runs on every XP-earning action, inside the awardActivity transaction.
+  await sql`
+    UPDATE public.user_missions um
+    SET progress = LEAST(m.target, um.progress + 1),
+        completed_at = CASE WHEN LEAST(m.target, um.progress + 1) >= m.target THEN now() ELSE um.completed_at END
+    FROM public.missions m
+    WHERE um.mission_id = m.id
+      AND um.user_id = ${userId}
+      AND m.action_type = ${actionType}
+      AND um.completed_at IS NULL
   `;
-  if (missions.length === 0) return;
-
-  for (const mission of missions) {
-    const rows = await sql<{ id: string; progress: number }[]>`
-      SELECT id, progress FROM public.user_missions
-      WHERE user_id = ${userId} AND mission_id = ${mission.id} AND completed_at IS NULL
-    `;
-    const um = rows[0];
-    if (!um) continue;
-
-    const nextProgress = Math.min(mission.target, um.progress + 1);
-    await sql`
-      UPDATE public.user_missions
-      SET progress = ${nextProgress},
-          completed_at = ${nextProgress >= mission.target ? new Date() : null}
-      WHERE id = ${um.id}
-    `;
-  }
 }

@@ -20,6 +20,7 @@ import learningRoutes from "./modules/learning/routes.js";
 import adminRoutes from "./modules/admin/routes.js";
 import communityRoutes from "./modules/community/routes.js";
 import contactRoutes from "./modules/contact/routes.js";
+import classesRoutes from "./modules/classes/routes.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -67,6 +68,7 @@ export async function buildApp() {
   await app.register(adminRoutes, { prefix: "/v1" });
   await app.register(communityRoutes, { prefix: "/v1" });
   await app.register(contactRoutes, { prefix: "/v1" });
+  await app.register(classesRoutes, { prefix: "/v1" });
 
   return app;
 }

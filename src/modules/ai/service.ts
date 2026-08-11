@@ -1,6 +1,14 @@
 import type { Sql } from "postgres";
 import { z } from "zod";
-import { AI_STT_URL, AI_TTS_URL, STT_MODEL, TTS_MODEL, callChatCompletion, requireOpenAiKey } from "../../lib/ai-gateway.js";
+import {
+  AI_STT_URL,
+  AI_TTS_URL,
+  STT_MODEL,
+  TTS_MODEL,
+  callChatCompletion,
+  fetchWithTimeout,
+  requireOpenAiKey,
+} from "../../lib/ai-gateway.js";
 import * as repo from "./repository.js";
 
 class UpstreamAiError extends Error {
@@ -26,7 +34,7 @@ export async function synthesizeSpeech(input: { text: string; voice: string; ins
   if (typeof input.speed === "number") body.speed = input.speed;
   // input.instructions (accent/tone hints) isn't supported by OpenAI's tts-1; dropped.
 
-  const upstream = await fetch(AI_TTS_URL, {
+  const upstream = await fetchWithTimeout(AI_TTS_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -53,7 +61,7 @@ export async function transcribeAudio(file: { buffer: Buffer; filename: string; 
   upstream.append("file", new Blob([file.buffer], { type: file.mimetype || "audio/webm" }), `recording.${ext}`);
   upstream.append("model", STT_MODEL);
 
-  const res = await fetch(AI_STT_URL, {
+  const res = await fetchWithTimeout(AI_STT_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
     body: upstream,

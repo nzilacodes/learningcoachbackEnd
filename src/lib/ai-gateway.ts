@@ -14,7 +14,7 @@ export class AiNotConfiguredError extends Error {
   }
 }
 
-class UpstreamAiError extends Error {
+export class UpstreamAiError extends Error {
   statusCode: number;
   constructor(message: string, statusCode: number) {
     super(message);
@@ -27,9 +27,33 @@ export function requireOpenAiKey(): string {
   return env.OPENAI_API_KEY;
 }
 
+const AI_REQUEST_TIMEOUT_MS = 30_000;
+
+// A hung upstream AI response would otherwise hold the request (and the
+// underlying connection) open indefinitely — e.g. blocking the whole
+// diagnostic-test submission on a stalled OpenAI call.
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = AI_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new UpstreamAiError(`AI request timed out after ${timeoutMs}ms`, 504);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function callChatCompletion(body: Record<string, unknown>): Promise<string> {
   const apiKey = requireOpenAiKey();
-  const res = await fetch(AI_CHAT_URL, {
+  const res = await fetchWithTimeout(AI_CHAT_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model: CHAT_MODEL, ...body }),

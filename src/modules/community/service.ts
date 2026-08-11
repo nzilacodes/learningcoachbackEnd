@@ -5,11 +5,17 @@ import * as repo from "./repository.js";
 // closes the obvious bypass of a client that just skips the filter before posting.
 const BANNED_WORDS = ["stupid", "hate", "idiot", "shut up", "burro", "idiota", "cala", "fuck", "shit", "damn"];
 
+// Word-boundary match so e.g. "cala" doesn't flag substrings inside unrelated
+// words like "escala" or "calado" — only the standalone word/phrase.
+function bannedWordPattern(word: string): RegExp {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "gi");
+}
+
 function moderate(text: string): string {
-  const lower = text.toLowerCase();
-  const flagged = BANNED_WORDS.some((w) => lower.includes(w));
+  const flagged = BANNED_WORDS.some((w) => bannedWordPattern(w).test(text));
   if (!flagged) return text;
-  return BANNED_WORDS.reduce((acc, w) => acc.replace(new RegExp(w, "gi"), "***"), text);
+  return BANNED_WORDS.reduce((acc, w) => acc.replace(bannedWordPattern(w), "***"), text);
 }
 
 export async function getMessages(sql: Sql, userId: string) {

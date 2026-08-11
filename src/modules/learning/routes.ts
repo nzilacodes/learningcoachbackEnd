@@ -4,6 +4,7 @@ import { requireRole } from "../../plugins/roles.js";
 import {
   studyTimeSchema,
   studyReminderSchema,
+  studySessionsQuerySchema,
   videoIdParamsSchema,
   videoHistoryUpsertSchema,
   lessonIdParamsSchema,
@@ -73,7 +74,7 @@ export default async function learningRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get("/me/study-sessions", { preHandler: requireAuth }, async (request) => {
-    const days = Math.min(Number((request.query as { days?: string }).days ?? 84), 365);
+    const { days } = studySessionsQuerySchema.parse(request.query);
     return service.getWeeklyStudy(request.server.sql, request.userId, days);
   });
 

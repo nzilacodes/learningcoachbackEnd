@@ -1,5 +1,6 @@
 import type { Sql } from "postgres";
 import { callChatCompletion, clampScore, similarity } from "../../lib/ai-gateway.js";
+import { cefrLevelSchema } from "../../lib/cefr.js";
 import * as repo from "./repository.js";
 import {
   GRAMMAR,
@@ -85,7 +86,11 @@ export async function submitDiagnostic(sql: Sql, userId: string, input: SubmitIn
   const writing = clampScore(parsed.writing_score ?? 0);
   const speaking = clampScore(parsed.speaking_score ?? 0);
   const overall = Math.round((grammar + vocabulary + reading + listening + writing + speaking + pronunciation) / 7);
-  const cefrLevel = parsed.cefr_level ?? "A1";
+  const cefrParse = cefrLevelSchema.safeParse(parsed.cefr_level);
+  if (!cefrParse.success && parsed.cefr_level !== undefined) {
+    console.warn(`[diagnostic] AI returned invalid cefr_level "${parsed.cefr_level}" for user ${userId}; falling back to A1`);
+  }
+  const cefrLevel = cefrParse.success ? cefrParse.data : "A1";
 
   const scores = { grammar, vocabulary, reading, listening, writing, speaking, pronunciation, overall };
   const strengths = Array.isArray(parsed.strengths) ? parsed.strengths.slice(0, 5) : [];

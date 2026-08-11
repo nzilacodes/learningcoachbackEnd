@@ -11,22 +11,30 @@ import {
 import * as service from "./service.js";
 
 export default async function authRoutes(fastify: FastifyInstance) {
-  fastify.post("/auth/register", async (request, reply) => {
-    const input = registerSchema.parse(request.body);
-    const tokens = await service.register(request.server.sql, input);
-    setSessionCookies(reply, tokens);
-    return reply.status(201).send({ ok: true });
-  });
+  fastify.post(
+    "/auth/register",
+    { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } },
+    async (request, reply) => {
+      const input = registerSchema.parse(request.body);
+      const tokens = await service.register(request.server.sql, input);
+      setSessionCookies(reply, tokens);
+      return reply.status(201).send({ ok: true });
+    },
+  );
 
-  fastify.post("/auth/login", async (request, reply) => {
-    const { email, password } = loginSchema.parse(request.body);
-    const tokens = await service.login(request.server.sql, email, password, {
-      ip: request.ip,
-      userAgent: request.headers["user-agent"],
-    });
-    setSessionCookies(reply, tokens);
-    return { ok: true };
-  });
+  fastify.post(
+    "/auth/login",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const { email, password } = loginSchema.parse(request.body);
+      const tokens = await service.login(request.server.sql, email, password, {
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+      setSessionCookies(reply, tokens);
+      return { ok: true };
+    },
+  );
 
   fastify.post("/auth/refresh", async (request, reply) => {
     const tokens = await service.refresh(request.server.sql, request.cookies.refresh_token);

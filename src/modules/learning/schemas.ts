@@ -9,6 +9,10 @@ export const studyReminderSchema = z.object({
   enabled: z.boolean(),
 });
 
+export const studySessionsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(84),
+});
+
 export const videoIdParamsSchema = z.object({ videoId: z.string().min(1).max(200) });
 
 export const lessonIdParamsSchema = z.object({ id: z.string().uuid() });
