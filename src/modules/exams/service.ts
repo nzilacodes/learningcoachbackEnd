@@ -1,10 +1,7 @@
 import type { Sql } from "postgres";
 import { CEFR_LEVELS, cefrRank, type CefrLevel } from "../../lib/cefr.js";
 import * as repo from "./repository.js";
-
-class ForbiddenError extends Error {
-  statusCode = 403;
-}
+import { ForbiddenError } from "../../lib/errors.js";
 
 /**
  * Ports the SQL private.get_max_unlocked_level loop: start at the user's

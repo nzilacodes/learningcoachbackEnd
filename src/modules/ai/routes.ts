@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../../plugins/auth.js";
+import { ValidationError } from "../../lib/errors.js";
 import {
   speechSchema,
   dictionaryParamsSchema,
@@ -32,7 +33,7 @@ export default async function aiRoutes(fastify: FastifyInstance) {
     { preHandler: requireAuth, config: { rateLimit: AI_RATE_LIMIT } },
     async (request, reply) => {
       const upload = await request.file();
-      if (!upload) return reply.status(400).send({ title: "Missing audio file", status: 400 });
+      if (!upload) throw new ValidationError("Missing audio file");
       const buffer = await upload.toBuffer();
       const result = await service.transcribeAudio({
         buffer,

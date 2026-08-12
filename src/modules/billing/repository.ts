@@ -1,9 +1,6 @@
 import type { Sql } from "postgres";
 import crypto from "node:crypto";
-
-class NotAvailableError extends Error {
-  statusCode = 409;
-}
+import { ConflictError as NotAvailableError } from "../../lib/errors.js";
 
 export async function listActivePlans(sql: Sql) {
   return sql`SELECT * FROM public.subscription_plans WHERE is_active = true ORDER BY price_kz`;

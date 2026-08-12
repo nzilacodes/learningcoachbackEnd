@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
@@ -21,15 +22,27 @@ import adminRoutes from "./modules/admin/routes.js";
 import communityRoutes from "./modules/community/routes.js";
 import contactRoutes from "./modules/contact/routes.js";
 import classesRoutes from "./modules/classes/routes.js";
+import notificationsRoutes from "./modules/notifications/routes.js";
 
 export async function buildApp() {
   const app = Fastify({
     logger: {
       transport: env.NODE_ENV === "production" ? undefined : { target: "pino-pretty" },
     },
+    // UUID per request instead of Fastify's default non-unique incrementing
+    // counter — this is what makes `request_id` in error responses (see
+    // plugins/error-handler.ts) actually useful as a support/log reference.
+    genReqId: () => randomUUID(),
   });
 
   registerErrorHandler(app);
+
+  // Echo the request id on every response (success or error) so it's
+  // traceable from the client/support conversation back to server logs.
+  app.addHook("onSend", async (request, reply, payload) => {
+    reply.header("x-request-id", request.id);
+    return payload;
+  });
 
   await app.register(cors, {
     origin: env.CORS_ALLOWED_ORIGINS.length > 0 ? env.CORS_ALLOWED_ORIGINS : false,
@@ -69,6 +82,7 @@ export async function buildApp() {
   await app.register(communityRoutes, { prefix: "/v1" });
   await app.register(contactRoutes, { prefix: "/v1" });
   await app.register(classesRoutes, { prefix: "/v1" });
+  await app.register(notificationsRoutes, { prefix: "/v1" });
 
   return app;
 }

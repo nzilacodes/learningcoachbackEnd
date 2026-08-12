@@ -2,10 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import fp from "fastify-plugin";
 import { jwtVerify } from "jose";
 import { env } from "../config/env.js";
-
-class UnauthorizedError extends Error {
-  statusCode = 401;
-}
+import { UnauthorizedError } from "../lib/errors.js";
 
 const secret = new TextEncoder().encode(env.JWT_SECRET);
 

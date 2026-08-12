@@ -6,23 +6,13 @@ import {
   STT_MODEL,
   TTS_MODEL,
   callChatCompletion,
+  classifyOpenAiFailure,
   fetchWithTimeout,
   requireOpenAiKey,
 } from "../../lib/ai-gateway.js";
 import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
+import { NotFoundError } from "../../lib/errors.js";
 import * as repo from "./repository.js";
-
-class UpstreamAiError extends Error {
-  statusCode: number;
-  constructor(message: string, statusCode: number) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
-
-class NotFoundError extends Error {
-  statusCode = 404;
-}
 
 export async function synthesizeSpeech(input: { text: string; voice: string; instructions?: string; speed?: number }) {
   const apiKey = requireOpenAiKey();
@@ -40,10 +30,7 @@ export async function synthesizeSpeech(input: { text: string; voice: string; ins
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!upstream.ok) {
-    const msg = await upstream.text().catch(() => "");
-    throw new UpstreamAiError(msg || "TTS failed", upstream.status);
-  }
+  if (!upstream.ok) throw await classifyOpenAiFailure(upstream, "tts");
   return Buffer.from(await upstream.arrayBuffer());
 }
 
@@ -67,10 +54,7 @@ export async function transcribeAudio(file: { buffer: Buffer; filename: string; 
     headers: { Authorization: `Bearer ${apiKey}` },
     body: upstream,
   });
-  if (!res.ok) {
-    const msg = await res.text().catch(() => "");
-    throw new UpstreamAiError(msg || "STT failed", res.status);
-  }
+  if (!res.ok) throw await classifyOpenAiFailure(res, "stt");
   const data = (await res.json()) as { text?: string };
   return { text: data.text ?? "" };
 }
@@ -384,7 +368,12 @@ export async function getVideoStudyPack(sql: Sql, videoId: string, input: StudyP
       ],
     });
     pack = StudyPackSchema.parse(JSON.parse(content));
-  } catch {
+  } catch (err) {
+    // Falls back to a generic pack rather than failing the page — but the
+    // failure itself (quota, timeout, malformed AI JSON, ...) was previously
+    // discarded entirely. Logged here so it's still visible to diagnose,
+    // consistent with the AI_SERVICE_LIMIT_REACHED-style logging everywhere else.
+    console.error(`[ai] study pack generation failed for video ${videoId}, using fallback:`, err);
     return FALLBACK_STUDY_PACK;
   }
 

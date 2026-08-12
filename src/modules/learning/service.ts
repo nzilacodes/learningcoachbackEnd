@@ -2,10 +2,7 @@ import type { Sql } from "postgres";
 import * as repo from "./repository.js";
 import { awardActivity } from "../gamification/service.js";
 import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
-
-class NotFoundError extends Error {
-  statusCode = 404;
-}
+import { NotFoundError } from "../../lib/errors.js";
 
 // Matches the "3 aulas / semana" free-plan copy shown at onboarding/checkout.
 const FREE_WEEKLY_LESSON_LIMIT = 3;

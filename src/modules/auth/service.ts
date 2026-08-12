@@ -4,14 +4,8 @@ import crypto from "node:crypto";
 import { SignJWT } from "jose";
 import { env } from "../../config/env.js";
 import { sendMail } from "../../lib/mailer.js";
+import { UnauthorizedError, ConflictError, LockedError } from "../../lib/errors.js";
 import * as repo from "./repository.js";
-
-class UnauthorizedError extends Error {
-  statusCode = 401;
-}
-class ConflictError extends Error {
-  statusCode = 409;
-}
 
 const jwtSecret = new TextEncoder().encode(env.JWT_SECRET);
 const ACCESS_TTL_SEC = env.ACCESS_TOKEN_TTL_MIN * 60;
@@ -50,10 +44,6 @@ export async function register(
   const isOwner = input.email.toLowerCase() === env.OWNER_EMAIL.toLowerCase();
   const user = await repo.createUser(sql, { ...input, passwordHash, isOwner });
   return issueTokens(sql, user.id);
-}
-
-class LockedError extends Error {
-  statusCode = 423;
 }
 
 export async function login(

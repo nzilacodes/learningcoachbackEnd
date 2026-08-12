@@ -1,8 +1,5 @@
 import type { Sql } from "postgres";
-
-export class PaymentRequiredError extends Error {
-  statusCode = 402;
-}
+export { PaymentRequiredError } from "./errors.js";
 
 export async function hasActiveSubscription(sql: Sql, userId: string): Promise<boolean> {
   const rows = await sql`

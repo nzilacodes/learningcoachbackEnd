@@ -1,11 +1,8 @@
 import type { Sql } from "postgres";
 import type { CefrLevel } from "../../lib/cefr.js";
 import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
+import { ForbiddenError } from "../../lib/errors.js";
 import * as repo from "./repository.js";
-
-class NotEligibleError extends Error {
-  statusCode = 403;
-}
 
 /**
  * Certificate eligibility is derived exclusively from a passed level_exam_attempts
@@ -31,7 +28,7 @@ export async function issueCertificate(
 
   const passedAttempt = await repo.findPassedExamAttempt(sql, userId, input.level);
   if (!passedAttempt) {
-    throw new NotEligibleError(`No passed exam on record for level ${input.level}`);
+    throw new ForbiddenError(`No passed exam on record for level ${input.level}`);
   }
 
   const fullName = await repo.getProfileName(sql, userId);

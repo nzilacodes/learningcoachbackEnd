@@ -1,6 +1,7 @@
 import type { Sql } from "postgres";
 import { callChatCompletion, clampScore, similarity } from "../../lib/ai-gateway.js";
 import { cefrLevelSchema } from "../../lib/cefr.js";
+import { notifyUser } from "../notifications/service.js";
 import * as repo from "./repository.js";
 import {
   GRAMMAR,
@@ -124,6 +125,13 @@ export async function submitDiagnostic(sql: Sql, userId: string, input: SubmitIn
 
   const onboardingStatus = await repo.getProfileOnboardingStatus(sql, userId);
   await repo.updateProfileAfterDiagnostic(sql, userId, cefrLevel, onboardingStatus === "placement");
+
+  // Best-effort: a notification failing to persist shouldn't fail an already-graded test.
+  await notifyUser(sql, userId, {
+    category: "assessment",
+    title: "Avaliação concluída",
+    description: "O seu Placement Test foi avaliado.",
+  }).catch(() => {});
 
   return { scores, cefr_level: cefrLevel, strengths, weaknesses, feedback, learning_plan: learningPlan };
 }

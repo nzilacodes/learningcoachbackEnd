@@ -1,8 +1,5 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
-
-class ForbiddenError extends Error {
-  statusCode = 403;
-}
+import { ForbiddenError } from "../lib/errors.js";
 
 /**
  * Explicit application-layer role check — there is no RLS/PostgREST in this

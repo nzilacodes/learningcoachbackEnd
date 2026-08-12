@@ -1,22 +1,13 @@
 import type { Sql } from "postgres";
 import * as repo from "./repository.js";
 import type { ACTIVITY_SOURCES } from "./schemas.js";
-
-class NotFoundError extends Error {
-  statusCode = 404;
-}
-class ConflictError extends Error {
-  statusCode = 409;
-}
-class ForbiddenError extends Error {
-  statusCode = 403;
-}
-class BadRequestError extends Error {
-  statusCode = 400;
-}
-class RateLimitedError extends Error {
-  statusCode = 429;
-}
+import {
+  NotFoundError,
+  ConflictError,
+  ForbiddenError,
+  ValidationError as BadRequestError,
+  RateLimitedError,
+} from "../../lib/errors.js";
 
 // Shortest a genuine playthrough could plausibly take (the MC/listening games
 // run 5 rounds; speaking/writing take at least this long to record+submit).

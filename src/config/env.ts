@@ -51,6 +51,13 @@ const envSchema = z.object({
   // boots and everything else works without this; AI-dependent endpoints return
   // a clear "not configured" error instead if it's unset.
   OPENAI_API_KEY: optionalNonEmptyString,
+  // Override the OpenAI endpoints to point at a local stub server for testing
+  // error scenarios (429 quota, 500, a hang for timeout) without touching real
+  // OpenAI billing. Unset in normal dev/production — ai-gateway.ts falls back
+  // to the real OpenAI URLs.
+  AI_CHAT_URL: optionalString,
+  AI_TTS_URL: optionalString,
+  AI_STT_URL: optionalString,
 
   // Mailer is optional too — with nothing configured, password-reset emails are
   // logged to the console (fine for dev), a real SMTP transport is used once set.

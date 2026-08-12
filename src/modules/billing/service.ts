@@ -2,13 +2,7 @@ import type { Sql } from "postgres";
 import crypto from "node:crypto";
 import { env } from "../../config/env.js";
 import * as repo from "./repository.js";
-
-class ForbiddenError extends Error {
-  statusCode = 403;
-}
-class NotFoundError extends Error {
-  statusCode = 404;
-}
+import { ForbiddenError, NotFoundError } from "../../lib/errors.js";
 
 export const listPlans = repo.listActivePlans;
 

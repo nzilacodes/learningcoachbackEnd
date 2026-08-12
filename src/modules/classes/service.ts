@@ -1,16 +1,7 @@
 import type { Sql } from "postgres";
 import crypto from "node:crypto";
 import * as repo from "./repository.js";
-
-class NotFoundError extends Error {
-  statusCode = 404;
-}
-class ForbiddenError extends Error {
-  statusCode = 403;
-}
-class ConflictError extends Error {
-  statusCode = 409;
-}
+import { NotFoundError, ForbiddenError, ConflictError } from "../../lib/errors.js";
 
 // 6 base36 chars ~ 2.1 billion combinations — same "generate once, don't
 // bother with collision retries" trust level as generateActivationCode()

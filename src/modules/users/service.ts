@@ -1,10 +1,7 @@
 import type { Sql } from "postgres";
 import * as repo from "./repository.js";
 import { getMe } from "../auth/service.js";
-
-class NotFoundError extends Error {
-  statusCode = 404;
-}
+import { NotFoundError } from "../../lib/errors.js";
 
 export const listUsers = repo.listUsers;
 

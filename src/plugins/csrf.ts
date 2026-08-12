@@ -1,9 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import fp from "fastify-plugin";
-
-class ForbiddenError extends Error {
-  statusCode = 403;
-}
+import { ForbiddenError } from "../lib/errors.js";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
