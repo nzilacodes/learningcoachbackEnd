@@ -15,11 +15,13 @@ export async function getMaxUnlockedLevel(sql: Sql, userId: string): Promise<Cef
   const base = await repo.getProfileCefrLevel(sql, userId);
   if (!base) return null;
 
+  // One query for every passed level instead of one round trip per level in
+  // a loop (up to 5 sequential queries for a user near C2).
+  const passedLevels = await repo.getPassedLevels(sql, userId);
   let rank = cefrRank(base);
   while (rank < CEFR_LEVELS.length) {
     const current = CEFR_LEVELS[rank - 1] as CefrLevel;
-    const passed = await repo.hasPassedAttempt(sql, userId, current);
-    if (!passed) break;
+    if (!passedLevels.has(current)) break;
     rank += 1;
   }
   return CEFR_LEVELS[rank - 1] as CefrLevel;

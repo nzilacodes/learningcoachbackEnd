@@ -29,6 +29,16 @@ export async function hasPassedAttempt(sql: Sql, userId: string, level: CefrLeve
   return rows.length > 0;
 }
 
+/** All levels the user has ever passed, in one query — used by getMaxUnlockedLevel
+ * instead of a per-level round trip in a loop. */
+export async function getPassedLevels(sql: Sql, userId: string): Promise<Set<CefrLevel>> {
+  const rows = await sql<{ level: CefrLevel }[]>`
+    SELECT DISTINCT level FROM public.level_exam_attempts
+    WHERE user_id = ${userId} AND passed = true
+  `;
+  return new Set(rows.map((r) => r.level));
+}
+
 export async function listAttempts(sql: Sql, userId: string, level?: CefrLevel) {
   if (level) {
     return sql`

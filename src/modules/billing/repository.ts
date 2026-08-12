@@ -29,8 +29,13 @@ export async function createSubscriptionOrder(
     `;
     if (!plan) throw new NotAvailableError("Plan not available");
 
-    // Idempotency: a double-click or resubmit shouldn't create a second
-    // pending subscription+payment for the same plan — reuse the existing one.
+    // Idempotency: a double-click or resubmit with the *same* method shouldn't
+    // create a second pending subscription+payment for the same plan — reuse
+    // the existing one. Matching on method too (not just user+plan) so a user
+    // who reused a pending order but picked a different payment method this
+    // time gets a fresh order for that method, instead of being shown
+    // instructions (reference/IBAN/etc.) for a method that doesn't match what
+    // was actually stored on the reused payment.
     const [existing] = await tx<
       { subscription_id: string; payment_id: string; reference: string; entity: string; invoice_number: string; amount_kz: number }[]
     >`
@@ -38,7 +43,7 @@ export async function createSubscriptionOrder(
       FROM public.subscriptions s
       JOIN public.payments p ON p.subscription_id = s.id
       WHERE s.user_id = ${userId} AND s.plan_id = ${params.planId}
-        AND s.status = 'pending' AND p.status = 'pending'
+        AND s.status = 'pending' AND p.status = 'pending' AND p.method = ${params.method}
       ORDER BY s.created_at DESC
       LIMIT 1
     `;
