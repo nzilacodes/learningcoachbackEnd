@@ -11,7 +11,7 @@ import {
   requireOpenAiKey,
 } from "../../lib/ai-gateway.js";
 import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
-import { NotFoundError } from "../../lib/errors.js";
+import { NotFoundError, ConflictError } from "../../lib/errors.js";
 import * as repo from "./repository.js";
 
 export async function synthesizeSpeech(input: { text: string; voice: string; instructions?: string; speed?: number }) {
@@ -417,24 +417,33 @@ export async function listMessages(sql: Sql, userId: string, conversationId: str
   return repo.listMessages(sql, conversationId);
 }
 
+/**
+ * Best-effort AI reply generation, isolated so a provider failure never
+ * orphans an already-persisted user message. Returns null (never throws) on
+ * any failure — the caller reports status: "failed" and the frontend offers
+ * a per-message retry (see retryCoachMessage / POST .../messages/:id/retry)
+ * instead of losing the user's message or failing the whole request.
+ */
+async function generateCoachReply(sql: Sql, conversationId: string, userId: string) {
+  const history = await repo.getRecentMessages(sql, conversationId, COACH_HISTORY_WINDOW);
+  try {
+    const replyText = await callChatCompletion({
+      messages: [
+        { role: "system", content: COACH_SYSTEM_PROMPT },
+        ...history.map((m) => ({ role: m.role, content: m.content })),
+      ],
+    });
+    return await repo.insertMessage(sql, { conversationId, userId, role: "assistant", content: replyText });
+  } catch (err) {
+    console.error(`[ai-coach] reply generation failed for conversation ${conversationId}:`, err);
+    return null;
+  }
+}
+
 export async function sendCoachMessage(sql: Sql, userId: string, conversationId: string, content: string) {
   const conversation = await requireOwnedConversation(sql, userId, conversationId);
 
   const userMessage = await repo.insertMessage(sql, { conversationId, userId, role: "user", content });
-  const history = await repo.getRecentMessages(sql, conversationId, COACH_HISTORY_WINDOW);
-
-  const replyText = await callChatCompletion({
-    messages: [
-      { role: "system", content: COACH_SYSTEM_PROMPT },
-      ...history.map((m) => ({ role: m.role, content: m.content })),
-    ],
-  });
-  const assistantMessage = await repo.insertMessage(sql, {
-    conversationId,
-    userId,
-    role: "assistant",
-    content: replyText,
-  });
 
   if (conversation.title) {
     await repo.touchConversation(sql, conversationId);
@@ -442,5 +451,21 @@ export async function sendCoachMessage(sql: Sql, userId: string, conversationId:
     await repo.setConversationTitle(sql, conversationId, content.slice(0, 60));
   }
 
-  return { userMessage, assistantMessage };
+  const assistantMessage = await generateCoachReply(sql, conversationId, userId);
+  return { userMessage, assistantMessage, status: (assistantMessage ? "ok" : "failed") as "ok" | "failed" };
+}
+
+/** Re-runs only the AI half for a user message whose reply previously failed. */
+export async function retryCoachMessage(sql: Sql, userId: string, conversationId: string, messageId: string) {
+  await requireOwnedConversation(sql, userId, conversationId);
+  const message = await repo.getMessageById(sql, messageId);
+  if (!message || message.conversation_id !== conversationId || message.role !== "user") {
+    throw new NotFoundError("Message not found");
+  }
+  if (await repo.hasMessageAfter(sql, conversationId, message.created_at)) {
+    throw new ConflictError("This message already has a reply");
+  }
+
+  const assistantMessage = await generateCoachReply(sql, conversationId, userId);
+  return { assistantMessage, status: (assistantMessage ? "ok" : "failed") as "ok" | "failed" };
 }

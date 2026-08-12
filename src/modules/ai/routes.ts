@@ -12,6 +12,7 @@ import {
   createConversationSchema,
   conversationIdParamsSchema,
   sendCoachMessageSchema,
+  retryMessageParamsSchema,
 } from "./schemas.js";
 import * as service from "./service.js";
 
@@ -116,6 +117,16 @@ export default async function aiRoutes(fastify: FastifyInstance) {
       const { id } = conversationIdParamsSchema.parse(request.params);
       const { content } = sendCoachMessageSchema.parse(request.body);
       const result = await service.sendCoachMessage(request.server.sql, request.userId, id, content);
+      return reply.status(201).send(result);
+    },
+  );
+
+  fastify.post(
+    "/ai/conversations/:id/messages/:messageId/retry",
+    { preHandler: requireAuth, config: { rateLimit: AI_RATE_LIMIT } },
+    async (request, reply) => {
+      const { id, messageId } = retryMessageParamsSchema.parse(request.params);
+      const result = await service.retryCoachMessage(request.server.sql, request.userId, id, messageId);
       return reply.status(201).send(result);
     },
   );

@@ -196,6 +196,21 @@ export async function insertMessage(
   return saved;
 }
 
+export async function getMessageById(sql: Sql, id: string) {
+  const rows = await sql<{ id: string; conversation_id: string; role: "user" | "assistant"; created_at: string }[]>`
+    SELECT id, conversation_id, role, created_at FROM public.ai_messages WHERE id = ${id}
+  `;
+  return rows[0] ?? null;
+}
+
+/** Whether any message (e.g. an assistant reply) already exists after the given timestamp in this conversation. */
+export async function hasMessageAfter(sql: Sql, conversationId: string, createdAt: string) {
+  const rows = await sql`
+    SELECT 1 FROM public.ai_messages WHERE conversation_id = ${conversationId} AND created_at > ${createdAt} LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
 export async function getCachedStudyPack(sql: Sql, videoId: string) {
   const rows = await sql`SELECT * FROM public.video_study_packs WHERE video_id = ${videoId}`;
   return rows[0] ?? null;

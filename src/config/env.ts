@@ -31,7 +31,7 @@ const envSchema = z.object({
   PASSWORD_RESET_TOKEN_TTL_MIN: z.coerce.number().int().positive().default(60),
 
   // Cookie-based sessions. In production, deploying the frontend and backend
-  // under the same parent domain (app.example.com / api.example.com) lets
+  // under the same parent domain (app.learningcoach.co.ao / api.learningcoach.co.ao) lets
   // COOKIE_SAMESITE stay "lax"; separate registrable domains need "none" (+ HTTPS).
   COOKIE_DOMAIN: optionalString,
   // Left unset, defaults to true in production and false in development (see below).

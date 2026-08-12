@@ -54,3 +54,8 @@ export const conversationIdParamsSchema = z.object({
 export const sendCoachMessageSchema = z.object({
   content: z.string().trim().min(1).max(4000),
 });
+
+export const retryMessageParamsSchema = z.object({
+  id: z.string().uuid(),
+  messageId: z.string().uuid(),
+});
