@@ -1,3 +1,5 @@
+import "./instrument.js";
+
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
 

@@ -71,6 +71,15 @@ const envSchema = z.object({
   SMTP_PASS: optionalString,
   MAIL_FROM: z.string().default("Learning Coach <no-reply@learningcoach.local>"),
 
+  // Error reporting is optional — with SENTRY_DSN unset, instrument.ts skips
+  // Sentry.init() entirely and the app behaves exactly as before (console/pino
+  // logs only), same "optional, degrades cleanly" idiom as OPENAI_API_KEY.
+  SENTRY_DSN: optionalString,
+  SENTRY_TRACES_SAMPLE_RATE: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.coerce.number().min(0).max(1).default(0.2),
+  ),
+
   // Media module (library + recording Studio): local disk on this VPS,
   // behind modules/media/storage.ts's MediaStorage interface — swapping to
   // an S3-compatible backend later only touches that one file. ffmpeg/ffprobe

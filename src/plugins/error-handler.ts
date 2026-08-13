@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { ZodError } from "zod";
+import * as Sentry from "@sentry/node";
 import { AppError, ErrorCode } from "../lib/errors.js";
 
 type ErrorEnvelope = {
@@ -65,6 +66,16 @@ export default function registerErrorHandler(fastify: FastifyInstance) {
       },
       `${appError.code}: ${appError.message}`,
     );
+
+    // Only unexpected 5xx go to Sentry — 4xx (validation, auth, rate-limit,
+    // known AppError classifications) are expected traffic, already logged
+    // above, and would just be noise in the issue stream.
+    if (appError.statusCode >= 500) {
+      Sentry.captureException(error, {
+        tags: { request_id: requestId, code: appError.code },
+        extra: { route: request.routeOptions?.url, method: request.method, userId: request.userId || undefined },
+      });
+    }
 
     const body: ErrorEnvelope = {
       success: false,
