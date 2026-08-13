@@ -12,7 +12,18 @@ import {
 } from "../../lib/ai-gateway.js";
 import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
 import { NotFoundError, ConflictError } from "../../lib/errors.js";
+import { getMediaAssetById } from "../media/repository.js";
 import * as repo from "./repository.js";
+
+/** A caller-supplied mediaAssetId only gets linked/exposed as audio_url once
+ * we've confirmed it's actually theirs — otherwise anyone could point an
+ * assessment at someone else's recording by guessing/reusing its id. */
+async function resolveOwnedRecording(sql: Sql, userId: string, mediaAssetId: string | null | undefined) {
+  if (!mediaAssetId) return { mediaAssetId: null, audioUrl: null };
+  const asset = await getMediaAssetById(sql, mediaAssetId);
+  if (!asset || asset.owner_id !== userId) return { mediaAssetId: null, audioUrl: null };
+  return { mediaAssetId: asset.id, audioUrl: `/v1/media/${asset.id}/stream` };
+}
 
 export async function synthesizeSpeech(input: { text: string; voice: string; instructions?: string; speed?: number }) {
   const apiKey = requireOpenAiKey();
@@ -143,6 +154,7 @@ type ReadingAssessInput = {
   transcript: string;
   durationSeconds: number;
   lessonId?: string | null;
+  mediaAssetId?: string | null;
 };
 
 export async function assessReading(sql: Sql, userId: string, input: ReadingAssessInput) {
@@ -184,6 +196,7 @@ export async function assessReading(sql: Sql, userId: string, input: ReadingAsse
   });
   const report = ReadingAssessSchema.parse(JSON.parse(content));
   const accuracy = Math.max(0, 1 - missing.length / Math.max(1, wordCount));
+  const recording = await resolveOwnedRecording(sql, userId, input.mediaAssetId);
 
   await repo.insertReadingAssessment(sql, {
     userId,
@@ -204,6 +217,8 @@ export async function assessReading(sql: Sql, userId: string, input: ReadingAsse
     overall: report.overall,
     feedback: report.feedback,
     mispronounced: report.mispronounced,
+    mediaAssetId: recording.mediaAssetId,
+    audioUrl: recording.audioUrl,
   });
 
   return { ...report, wpm, missing };
@@ -231,6 +246,7 @@ type PronunciationAssessInput = {
   transcribed: string;
   ipa: string;
   lessonId?: string | null;
+  mediaAssetId?: string | null;
 };
 
 export async function assessPronunciation(sql: Sql, userId: string, input: PronunciationAssessInput) {
@@ -257,6 +273,7 @@ export async function assessPronunciation(sql: Sql, userId: string, input: Pronu
     ],
   });
   const score = PronunciationAssessSchema.parse(JSON.parse(content));
+  const recording = await resolveOwnedRecording(sql, userId, input.mediaAssetId);
 
   await repo.insertPronunciationAssessment(sql, {
     userId,
@@ -272,6 +289,8 @@ export async function assessPronunciation(sql: Sql, userId: string, input: Pronu
     overall: score.overall,
     feedback: score.feedback,
     phonemeIssues: score.phoneme_issues,
+    mediaAssetId: recording.mediaAssetId,
+    audioUrl: recording.audioUrl,
   });
 
   return score;

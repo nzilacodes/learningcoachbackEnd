@@ -59,6 +59,8 @@ type ReadingAssessmentRow = {
   overall: number;
   feedback: string;
   mispronounced: Mispronounced[];
+  mediaAssetId?: string | null;
+  audioUrl?: string | null;
 };
 
 export async function insertReadingAssessment(sql: Sql, row: ReadingAssessmentRow) {
@@ -66,11 +68,12 @@ export async function insertReadingAssessment(sql: Sql, row: ReadingAssessmentRo
     INSERT INTO public.reading_assessments (
       user_id, lesson_id, passage, passage_key, transcript, duration_seconds,
       wpm, comprehension_score, accuracy, pronunciation, fluency, intonation,
-      rhythm, clarity, pauses, overall, feedback, mispronounced
+      rhythm, clarity, pauses, overall, feedback, mispronounced, media_asset_id, audio_url
     ) VALUES (
       ${row.userId}, ${row.lessonId ?? null}, ${row.passage}, ${row.passageKey}, ${row.transcript}, ${row.durationSeconds},
       ${row.wpm}, ${row.comprehensionScore}, ${row.accuracy}, ${row.pronunciation}, ${row.fluency}, ${row.intonation},
-      ${row.rhythm}, ${row.clarity}, ${row.pauses}, ${row.overall}, ${row.feedback}, ${sql.json(row.mispronounced)}
+      ${row.rhythm}, ${row.clarity}, ${row.pauses}, ${row.overall}, ${row.feedback}, ${sql.json(row.mispronounced)},
+      ${row.mediaAssetId ?? null}, ${row.audioUrl ?? null}
     )
     RETURNING *
   `;
@@ -110,16 +113,19 @@ type PronunciationAssessmentRow = {
   overall: number;
   feedback: string;
   phonemeIssues: PhonemeIssue[];
+  mediaAssetId?: string | null;
+  audioUrl?: string | null;
 };
 
 export async function insertPronunciationAssessment(sql: Sql, row: PronunciationAssessmentRow) {
   const [saved] = await sql`
     INSERT INTO public.pronunciation_assessments (
       user_id, lesson_id, word, expected_text, transcribed_text, accuracy,
-      fluency, intonation, rhythm, clarity, overall, feedback, phoneme_issues
+      fluency, intonation, rhythm, clarity, overall, feedback, phoneme_issues, media_asset_id, audio_url
     ) VALUES (
       ${row.userId}, ${row.lessonId ?? null}, ${row.word}, ${row.expectedText}, ${row.transcribedText}, ${row.accuracy},
-      ${row.fluency}, ${row.intonation}, ${row.rhythm}, ${row.clarity}, ${row.overall}, ${row.feedback}, ${sql.json(row.phonemeIssues)}
+      ${row.fluency}, ${row.intonation}, ${row.rhythm}, ${row.clarity}, ${row.overall}, ${row.feedback}, ${sql.json(row.phonemeIssues)},
+      ${row.mediaAssetId ?? null}, ${row.audioUrl ?? null}
     )
     RETURNING *
   `;

@@ -8,6 +8,10 @@ const optionalString = z.preprocess((v) => (v === "" ? undefined : v), z.string(
 const optionalNonEmptyString = z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional());
 const optionalNumber = z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().positive().optional());
 const optionalBoolString = z.preprocess((v) => (v === "" ? undefined : v), z.enum(["true", "false"]).optional());
+// Like optionalNumber, but with a real fallback instead of undefined — for
+// config that always needs a usable value (e.g. a per-type upload cap).
+const numberWithDefault = (def: number) =>
+  z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().positive().default(def));
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
@@ -66,6 +70,23 @@ const envSchema = z.object({
   SMTP_USER: optionalString,
   SMTP_PASS: optionalString,
   MAIL_FROM: z.string().default("Learning Coach <no-reply@learningcoach.local>"),
+
+  // Media module (library + recording Studio): local disk on this VPS,
+  // behind modules/media/storage.ts's MediaStorage interface — swapping to
+  // an S3-compatible backend later only touches that one file. ffmpeg/ffprobe
+  // are external binaries invoked via child_process, not npm packages, so
+  // their paths are configurable; leaving them unset just means processing
+  // skips duration/thumbnail extraction instead of failing the upload (see
+  // modules/media/processing.ts) — same "optional, degrades cleanly" idiom
+  // as OPENAI_API_KEY above.
+  MEDIA_STORAGE_ROOT: z.preprocess((v) => (v === "" ? undefined : v), z.string().default("./data/media")),
+  MEDIA_MAX_VIDEO_MB: numberWithDefault(500),
+  MEDIA_MAX_AUDIO_MB: numberWithDefault(50),
+  MEDIA_MAX_IMAGE_MB: numberWithDefault(15),
+  MEDIA_MAX_DOCUMENT_MB: numberWithDefault(20),
+  MEDIA_FFMPEG_PATH: optionalString,
+  MEDIA_FFPROBE_PATH: optionalString,
+  MEDIA_TRASH_RETENTION_DAYS: numberWithDefault(30),
 });
 
 function loadEnv() {

@@ -83,7 +83,11 @@ export async function completeLesson(sql: Sql, userId: string, lessonId: string)
   // duplicate/concurrent request) farm XP again.
   if (!justCompleted) return { alreadyCompleted: true as const };
 
-  const reward = await awardActivity(sql, userId, "lesson_complete", { lessonId });
+  // Award the lesson's own configured xp_reward (shown to the student as
+  // "+{lesson.xp_reward} XP" before they finish it — see lesson.$lessonId.tsx)
+  // instead of the flat DEFAULT_REWARDS.lesson_complete amount, which ignored
+  // it entirely and could under/over-pay relative to what the UI promised.
+  const reward = await awardActivity(sql, userId, "lesson_complete", { lessonId }, lesson.xp_reward);
   return { alreadyCompleted: false as const, ...reward };
 }
 

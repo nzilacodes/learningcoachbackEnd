@@ -23,6 +23,8 @@ import communityRoutes from "./modules/community/routes.js";
 import contactRoutes from "./modules/contact/routes.js";
 import classesRoutes from "./modules/classes/routes.js";
 import notificationsRoutes from "./modules/notifications/routes.js";
+import mediaRoutes from "./modules/media/routes.js";
+import { reconcileStuckProcessing } from "./modules/media/repository.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -66,6 +68,11 @@ export async function buildApp() {
   await app.register(csrfPlugin);
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } });
 
+  // Media assets left mid-'processing' mean the process restarted or crashed
+  // before processAsset() finished — there's no job queue to retry them, so
+  // reconcile once at boot instead of leaving them stuck forever.
+  reconcileStuckProcessing(app.sql).catch((err) => app.log.error({ err }, "media: reconcileStuckProcessing failed"));
+
   app.get("/v1/health", async () => ({ status: "ok" }));
   app.get("/v1/config", async () => ({ sandboxPaymentsEnabled: env.SANDBOX_PAYMENTS_ENABLED }));
 
@@ -83,6 +90,7 @@ export async function buildApp() {
   await app.register(contactRoutes, { prefix: "/v1" });
   await app.register(classesRoutes, { prefix: "/v1" });
   await app.register(notificationsRoutes, { prefix: "/v1" });
+  await app.register(mediaRoutes, { prefix: "/v1" });
 
   return app;
 }

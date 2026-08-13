@@ -93,8 +93,19 @@ function resolveReward(source: ActivitySource, meta: Record<string, unknown>): {
   return { xp, coins: Math.round(xp / 3) };
 }
 
-export async function awardActivity(sql: Sql, userId: string, source: ActivitySource, meta: Record<string, unknown>) {
-  const reward = resolveReward(source, meta);
+export async function awardActivity(
+  sql: Sql,
+  userId: string,
+  source: ActivitySource,
+  meta: Record<string, unknown>,
+  // Server-trusted XP override (e.g. a specific lesson's configured
+  // xp_reward, read from the DB by the caller) — never derived from client
+  // input, so this doesn't reopen the "client claims its own XP" hole
+  // DEFAULT_REWARDS was introduced to close.
+  xpOverride?: number,
+) {
+  const base = resolveReward(source, meta);
+  const reward = xpOverride != null ? { xp: xpOverride, coins: base.coins } : base;
 
   // The whole read-check-write sequence runs in one transaction so the game
   // cooldown check and the resulting insert can't race across two concurrent

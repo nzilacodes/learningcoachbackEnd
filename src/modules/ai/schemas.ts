@@ -17,6 +17,11 @@ export const readingAssessSchema = z.object({
   transcript: z.string().max(6000).default(""),
   durationSeconds: z.number().int().min(1).max(1800),
   lessonId: z.string().uuid().nullable().optional(),
+  // Set when the frontend already uploaded the recording via POST
+  // /v1/media/uploads before calling this — links the attempt to the stored
+  // audio (see ai/service.ts#assessReading). Optional: older/lighter callers
+  // that never call the Media API keep working exactly as before.
+  mediaAssetId: z.string().uuid().nullable().optional(),
 });
 
 export const readingHistoryQuerySchema = z.object({
@@ -28,6 +33,8 @@ export const pronunciationAssessSchema = z.object({
   transcribed: z.string().default(""),
   ipa: z.string().default(""),
   lessonId: z.string().uuid().nullable().optional(),
+  // See readingAssessSchema.mediaAssetId — same optional recording link.
+  mediaAssetId: z.string().uuid().nullable().optional(),
 });
 
 export const videoIdParamsSchema = z.object({

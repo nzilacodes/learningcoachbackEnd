@@ -43,6 +43,14 @@ export default function registerErrorHandler(fastify: FastifyInstance) {
     // Every error is logged now, not just >=500 — previously 401/403/429 were
     // never logged at all. Full stack (`err`) only for 5xx, to keep routine
     // 4xx logs (a wrong password, an expired session) lean.
+    //
+    // For an unclassified exception, `appError` above is a *new* AppError
+    // constructed right here — its own stack trace points at this file, not
+    // at whatever actually threw. Logging `appError` in that case silently
+    // discards the real error (message + stack), making every uncaught 500
+    // undiagnosable from the logs. Log the original `error` instead whenever
+    // one exists; it's never sent to the client either way (see the safe
+    // `message: appError.message` below).
     request.log[appError.logLevel](
       {
         code: appError.code,
@@ -53,7 +61,7 @@ export default function registerErrorHandler(fastify: FastifyInstance) {
         userId: request.userId || undefined,
         provider: appError.code.startsWith("AI_") ? "openai" : undefined,
         internalDetail: appError.internalDetail,
-        err: appError.statusCode >= 500 ? appError : undefined,
+        err: appError.statusCode >= 500 ? error : undefined,
       },
       `${appError.code}: ${appError.message}`,
     );
