@@ -32,7 +32,7 @@ export async function issueCertificate(
   }
 
   const fullName = await repo.getProfileName(sql, userId);
-  return repo.insertCertificate(sql, {
+  const inserted = await repo.insertCertificate(sql, {
     userId,
     level: input.level,
     score: passedAttempt.score,
@@ -40,6 +40,10 @@ export async function issueCertificate(
     courseTitle: input.courseTitle,
     fullName,
   });
+  // A concurrent duplicate request (e.g. a double-click) won the race between
+  // the findExistingCertificate check above and this insert — read back the
+  // certificate it just issued instead of treating this as a failure.
+  return inserted ?? (await repo.findExistingCertificate(sql, userId, input.level));
 }
 
 export async function listMyCertificates(sql: Sql, userId: string) {

@@ -1,5 +1,6 @@
 import type { Sql } from "postgres";
 import type { CefrLevel } from "../../lib/cefr.js";
+import { NotFoundError } from "../../lib/errors.js";
 
 export type ExamQuestion = { q: string; opts: string[]; a: number };
 
@@ -7,7 +8,7 @@ export async function getExam(sql: Sql, level: CefrLevel) {
   const rows = await sql<{ level: CefrLevel; title: string; questions: ExamQuestion[] }[]>`
     SELECT level, title, questions FROM public.level_exams WHERE level = ${level}
   `;
-  if (!rows[0]) throw new Error(`No exam configured for level ${level}`);
+  if (!rows[0]) throw new NotFoundError(`No exam configured for level ${level}`);
   return rows[0];
 }
 

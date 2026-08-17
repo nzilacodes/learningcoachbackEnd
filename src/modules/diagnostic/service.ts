@@ -2,6 +2,7 @@ import type { Sql } from "postgres";
 import { callChatCompletion, clampScore, similarity } from "../../lib/ai-gateway.js";
 import { cefrLevelSchema } from "../../lib/cefr.js";
 import { notifyUser } from "../notifications/service.js";
+import { awardActivity } from "../gamification/service.js";
 import * as repo from "./repository.js";
 import {
   GRAMMAR,
@@ -125,6 +126,15 @@ export async function submitDiagnostic(sql: Sql, userId: string, input: SubmitIn
 
   const onboardingStatus = await repo.getProfileOnboardingStatus(sql, userId);
   await repo.updateProfileAfterDiagnostic(sql, userId, cefrLevel, onboardingStatus === "placement");
+
+  // Award XP here, from the verified-graded result, instead of trusting a
+  // self-reported POST /v1/xp/events {"source":"diagnostic_complete"} — the
+  // same reasoning CLIENT_AWARDABLE_SOURCES documents for excluding
+  // lesson_complete applies here: a client could otherwise farm the reward
+  // once every cooldown window without ever taking the test. Best-effort,
+  // same as the notification below: an already-graded, already-persisted
+  // result shouldn't fail (e.g. a same-day retake hitting the XP cooldown).
+  await awardActivity(sql, userId, "diagnostic_complete", {}).catch(() => {});
 
   // Best-effort: a notification failing to persist shouldn't fail an already-graded test.
   await notifyUser(sql, userId, {

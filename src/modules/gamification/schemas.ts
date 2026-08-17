@@ -13,12 +13,13 @@ export const ACTIVITY_SOURCES = [
 ] as const;
 
 // What POST /v1/xp/events (the public, client-callable endpoint) accepts.
-// "lesson_complete" is deliberately excluded: it already has its own
-// authoritative path, POST /lessons/:id/complete (modules/learning), which
-// verifies the lesson exists, dedupes repeat completions, and enforces the
-// free-tier weekly cap. Accepting it here too would let a client award
-// itself lesson XP — and silently bypass that cap — without ever completing
-// (or even referencing) a real lesson.
+// "lesson_complete" and "diagnostic_complete" are deliberately excluded: each
+// already has its own authoritative path — POST /lessons/:id/complete
+// (modules/learning) and POST /assessments/diagnostic (modules/diagnostic)
+// respectively — which verifies the activity actually happened before
+// awarding XP. Accepting them here too would let a client award itself XP
+// (and, for diagnostic_complete, bump its streak once every cooldown window)
+// without ever completing — or even referencing — the real activity.
 export const CLIENT_AWARDABLE_SOURCES = [
   "watch_video",
   "exercise",
@@ -26,7 +27,6 @@ export const CLIENT_AWARDABLE_SOURCES = [
   "speaking",
   "listening",
   "daily_study",
-  "diagnostic_complete",
   "game",
 ] as const;
 
