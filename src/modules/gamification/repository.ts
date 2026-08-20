@@ -298,6 +298,47 @@ export async function getLeaderboard(sql: Sql, limit: number, country?: string) 
   `;
 }
 
+// A lightweight take on Duolingo-style leagues: instead of a stored cohort
+// that a scheduled job promotes/demotes (which this backend has no
+// infrastructure for — no cron/scheduler exists here), tiers are computed
+// fresh on every read from this week's xp_events. The reset is implicit:
+// once a new ISO week starts, everyone's weekly_xp is naturally 0 again,
+// no batch job required. NTILE(4) only ranks users who earned XP this week
+// (via the HAVING clause) — someone with 0 weekly XP isn't "relegated" to
+// a league, they just haven't entered one yet.
+export async function getWeeklyLeaderboard(sql: Sql, limit: number, country?: string) {
+  return sql`
+    WITH weekly AS (
+      SELECT
+        p.id AS user_id,
+        COALESCE(NULLIF(TRIM(split_part(p.full_name,' ',1)),''), 'Aluno') ||
+          CASE WHEN position(' ' in COALESCE(p.full_name,'')) > 0
+               THEN ' ' || LEFT(split_part(p.full_name,' ',2), 1) || '.'
+               ELSE '' END AS display_name,
+        p.cefr_level,
+        p.country,
+        SUM(xe.amount) AS weekly_xp
+      FROM public.profiles p
+      JOIN public.xp_events xe
+        ON xe.user_id = p.id
+        AND xe.created_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+      WHERE ${country ? sql`p.country = ${country}` : sql`true`}
+      GROUP BY p.id, p.full_name, p.cefr_level, p.country
+      HAVING SUM(xe.amount) > 0
+    )
+    SELECT
+      ROW_NUMBER() OVER (ORDER BY weekly_xp DESC, user_id) AS rank,
+      user_id,
+      display_name,
+      weekly_xp,
+      cefr_level,
+      NTILE(4) OVER (ORDER BY weekly_xp DESC, user_id) AS tier
+    FROM weekly
+    ORDER BY weekly_xp DESC, user_id
+    LIMIT ${limit}
+  `;
+}
+
 export async function getMyRank(sql: Sql, userId: string) {
   const rows = await sql<{ rank: string; total: string; xp: number }[]>`
     WITH ranked AS (

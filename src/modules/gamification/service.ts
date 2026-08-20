@@ -251,6 +251,7 @@ export const listUserAchievements = repo.listUserAchievements;
 // ---------- Leaderboard / rank ----------
 
 export const getLeaderboard = repo.getLeaderboard;
+export const getWeeklyLeaderboard = repo.getWeeklyLeaderboard;
 
 export async function getMyRank(sql: Sql, userId: string) {
   return repo.getMyRank(sql, userId);

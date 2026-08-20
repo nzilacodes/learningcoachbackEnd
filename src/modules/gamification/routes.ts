@@ -63,6 +63,11 @@ export default async function gamificationRoutes(fastify: FastifyInstance) {
     return service.getLeaderboard(request.server.sql, limit, country);
   });
 
+  fastify.get("/weekly-leaderboard", { preHandler: requireAuth }, async (request) => {
+    const { limit, country } = leaderboardQuerySchema.parse(request.query);
+    return service.getWeeklyLeaderboard(request.server.sql, limit, country);
+  });
+
   fastify.get("/me/rank", { preHandler: requireAuth }, async (request) => {
     return service.getMyRank(request.server.sql, request.userId);
   });
