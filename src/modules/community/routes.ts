@@ -5,12 +5,14 @@ import {
   reportMessageSchema,
   messageIdParamsSchema,
   userIdParamsSchema,
+  listMessagesQuerySchema,
 } from "./schemas.js";
 import * as service from "./service.js";
 
 export default async function communityRoutes(fastify: FastifyInstance) {
   fastify.get("/community/messages", { preHandler: requireAuth }, async (request) => {
-    return service.getMessages(request.server.sql, request.userId);
+    const { since } = listMessagesQuerySchema.parse(request.query);
+    return service.getMessages(request.server.sql, request.userId, since);
   });
 
   fastify.post(

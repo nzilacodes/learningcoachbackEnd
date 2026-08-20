@@ -19,10 +19,10 @@ function moderate(text: string): string {
   return BANNED_WORDS.reduce((acc, w) => acc.replace(bannedWordPattern(w), "***"), text);
 }
 
-export async function getMessages(sql: Sql, userId: string) {
+export async function getMessages(sql: Sql, userId: string, since?: string) {
   const { room } = await repo.getRoomAndNameForUser(sql, userId);
   const blockedUserIds = await repo.listBlockedUserIds(sql, userId);
-  const messages = await repo.listMessages(sql, room, blockedUserIds);
+  const messages = await repo.listMessages(sql, room, blockedUserIds, { since });
   return { room, messages };
 }
 

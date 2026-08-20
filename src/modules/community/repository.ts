@@ -21,13 +21,31 @@ export async function getRoomAndNameForUser(sql: Sql, userId: string): Promise<{
   return { room: ageToRoom(row?.age ?? null), displayName };
 }
 
-export async function listMessages(sql: Sql, room: Room, blockedUserIds: string[], limit = 200) {
+// `since` powers incremental polling (PERF-01): once the client has an
+// initial snapshot, later polls only ask for rows created after the last one
+// they saw instead of re-fetching (and re-transferring) the same 200-row
+// snapshot every 3s. No LIMIT on that path — a few seconds' worth of new
+// messages is never going to approach 200.
+export async function listMessages(
+  sql: Sql,
+  room: Room,
+  blockedUserIds: string[],
+  opts: { since?: string; limit?: number } = {},
+) {
+  if (opts.since) {
+    return sql`
+      SELECT id, user_id, display_name, content, kind, created_at
+      FROM public.community_messages
+      WHERE room = ${room} AND NOT (user_id = ANY(${blockedUserIds})) AND created_at > ${opts.since}
+      ORDER BY created_at ASC
+    `;
+  }
   return sql`
     SELECT id, user_id, display_name, content, kind, created_at
     FROM public.community_messages
     WHERE room = ${room} AND NOT (user_id = ANY(${blockedUserIds}))
     ORDER BY created_at DESC
-    LIMIT ${limit}
+    LIMIT ${opts.limit ?? 200}
   `.then((rows) => rows.reverse());
 }
 
