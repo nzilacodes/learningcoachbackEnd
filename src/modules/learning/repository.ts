@@ -139,7 +139,12 @@ export async function countLessonsCompletedSince(sql: Sql, userId: string, since
  * completion requests can't both read "not completed yet" and both award XP.
  * completed_at only changes on the row's first completion (COALESCE keeps the
  * original), so comparing it to this statement's own timestamp tells us which
- * call won.
+ * call won. RETURNING compares against now() rather than EXCLUDED.completed_at
+ * — Postgres only allows referencing EXCLUDED inside DO UPDATE's SET/WHERE,
+ * never in RETURNING ("invalid reference to FROM-clause entry for table
+ * excluded"). now() is equivalent here: it's fixed for the whole statement
+ * (it returns the transaction's start time), so it's the same value that was
+ * just inserted/compared as EXCLUDED.completed_at above.
  */
 export async function completeLessonProgress(sql: Sql, userId: string, unitId: string, lessonId: string) {
   const [row] = await sql<{ just_completed: boolean }[]>`
@@ -149,7 +154,7 @@ export async function completeLessonProgress(sql: Sql, userId: string, unitId: s
       progress_pct = 100,
       completed_at = COALESCE(lesson_progress.completed_at, EXCLUDED.completed_at),
       updated_at = now()
-    RETURNING (completed_at = EXCLUDED.completed_at) AS just_completed
+    RETURNING (completed_at = now()) AS just_completed
   `;
   return row!.just_completed;
 }
