@@ -4,6 +4,13 @@ type MailMessage = { to: string; subject: string; text: string; html?: string };
 
 const smtpConfigured = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
 
+// A loopback SMTP_HOST means the mail server runs on this same machine (see
+// lib/mailer's self-hosted setup) — its cert is self-signed, and there's no
+// network hop for a self-signed cert to actually protect against here, so
+// skip verification only in that case. A real external provider (Resend,
+// SendGrid, a mailbox host) always gets full certificate verification.
+const isLoopbackSmtpHost = env.SMTP_HOST === "127.0.0.1" || env.SMTP_HOST === "localhost";
+
 async function sendViaSmtp(message: MailMessage): Promise<void> {
   const nodemailer = await import("nodemailer");
   const transport = nodemailer.createTransport({
@@ -11,6 +18,7 @@ async function sendViaSmtp(message: MailMessage): Promise<void> {
     port: env.SMTP_PORT ?? 587,
     secure: (env.SMTP_PORT ?? 587) === 465,
     auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+    tls: isLoopbackSmtpHost ? { rejectUnauthorized: false } : undefined,
   });
   await transport.sendMail({ from: env.MAIL_FROM, ...message });
 }
