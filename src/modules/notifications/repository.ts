@@ -13,6 +13,11 @@ export type NotificationRow = {
   created_at: string;
 };
 
+export async function getUserEmail(sql: Sql, userId: string): Promise<string | null> {
+  const [row] = await sql<{ email: string }[]>`SELECT email FROM public.app_users WHERE id = ${userId}`;
+  return row?.email ?? null;
+}
+
 export async function insertNotification(
   sql: Sql,
   params: { userId: string; category: NotificationCategory; title: string; description?: string; actionUrl?: string },
