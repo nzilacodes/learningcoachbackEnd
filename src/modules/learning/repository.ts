@@ -159,16 +159,32 @@ export async function completeLessonProgress(sql: Sql, userId: string, unitId: s
   return row!.just_completed;
 }
 
-export type StudyStats = { streak_days: number; last_activity_date: string | null; xp: number };
+export type StudyStats = {
+  streak_days: number;
+  last_activity_date: string | null;
+  xp: number;
+  today_xp: number;
+};
 
 export async function getStudyStats(sql: Sql, userId: string): Promise<StudyStats> {
   const rows = await sql<StudyStats[]>`
-    SELECT COALESCE(us.streak_days, 0) AS streak_days, us.last_activity_date, COALESCE(p.xp, 0) AS xp
+    SELECT
+      COALESCE(us.streak_days, 0) AS streak_days,
+      us.last_activity_date,
+      COALESCE(p.xp, 0) AS xp,
+      -- UTC day boundary, matching todayUtc() in gamification/service.ts
+      -- (toISOString().slice(0, 10)) — "today" means the same thing here
+      -- as it does for the streak calculation.
+      COALESCE((
+        SELECT SUM(amount) FROM public.xp_events
+        WHERE user_id = p.id
+          AND created_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+      ), 0)::int AS today_xp
     FROM public.profiles p
     LEFT JOIN public.user_stats us ON us.user_id = p.id
     WHERE p.id = ${userId}
   `;
-  return rows[0] ?? { streak_days: 0, last_activity_date: null, xp: 0 };
+  return rows[0] ?? { streak_days: 0, last_activity_date: null, xp: 0, today_xp: 0 };
 }
 
 export async function getStudySessions(sql: Sql, userId: string, sinceDay: string) {
