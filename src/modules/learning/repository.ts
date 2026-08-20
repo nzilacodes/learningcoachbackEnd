@@ -1,4 +1,4 @@
-import type { Sql } from "postgres";
+import type { Sql, JSONValue } from "postgres";
 
 export async function listCourses(sql: Sql) {
   return sql`SELECT * FROM public.courses WHERE is_published = true ORDER BY order_index`;
@@ -44,7 +44,7 @@ export async function updateLesson(sql: Sql, id: string, patch: LessonPatch) {
     UPDATE public.lessons SET
       title = COALESCE(${patch.title ?? null}, title),
       summary = COALESCE(${patch.summary ?? null}, summary),
-      content = COALESCE(${patch.content !== undefined ? sql.json(patch.content as any) : null}, content),
+      content = COALESCE(${patch.content !== undefined ? sql.json(patch.content as JSONValue) : null}, content),
       duration_min = COALESCE(${patch.durationMin ?? null}, duration_min),
       xp_reward = COALESCE(${patch.xpReward ?? null}, xp_reward),
       is_published = COALESCE(${patch.isPublished ?? null}, is_published)
@@ -84,8 +84,8 @@ export async function createExercise(sql: Sql, lessonId: string, input: Exercise
     INSERT INTO public.exercises (lesson_id, type, prompt, data, correct_answer, xp_reward, order_index)
     VALUES (
       ${lessonId}, ${input.type}, ${input.prompt},
-      ${input.data !== undefined ? sql.json(input.data as any) : null},
-      ${input.correctAnswer !== undefined ? sql.json(input.correctAnswer as any) : null},
+      ${input.data !== undefined ? sql.json(input.data as JSONValue) : null},
+      ${input.correctAnswer !== undefined ? sql.json(input.correctAnswer as JSONValue) : null},
       ${input.xpReward},
       COALESCE((SELECT max(order_index) + 1 FROM public.exercises WHERE lesson_id = ${lessonId}), 0)
     )
@@ -101,8 +101,8 @@ export async function updateExercise(sql: Sql, id: string, patch: ExercisePatch)
     UPDATE public.exercises SET
       type = COALESCE(${patch.type ?? null}, type),
       prompt = COALESCE(${patch.prompt ?? null}, prompt),
-      data = COALESCE(${patch.data !== undefined ? sql.json(patch.data as any) : null}, data),
-      correct_answer = COALESCE(${patch.correctAnswer !== undefined ? sql.json(patch.correctAnswer as any) : null}, correct_answer),
+      data = COALESCE(${patch.data !== undefined ? sql.json(patch.data as JSONValue) : null}, data),
+      correct_answer = COALESCE(${patch.correctAnswer !== undefined ? sql.json(patch.correctAnswer as JSONValue) : null}, correct_answer),
       xp_reward = COALESCE(${patch.xpReward ?? null}, xp_reward),
       order_index = COALESCE(${patch.orderIndex ?? null}, order_index)
     WHERE id = ${id}

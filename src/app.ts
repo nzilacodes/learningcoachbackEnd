@@ -25,6 +25,7 @@ import classesRoutes from "./modules/classes/routes.js";
 import notificationsRoutes from "./modules/notifications/routes.js";
 import mediaRoutes from "./modules/media/routes.js";
 import { reconcileStuckProcessing } from "./modules/media/repository.js";
+import { registerStreakReminderJob } from "./jobs/streak-reminder.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -72,6 +73,8 @@ export async function buildApp() {
   // before processAsset() finished — there's no job queue to retry them, so
   // reconcile once at boot instead of leaving them stuck forever.
   reconcileStuckProcessing(app.sql).catch((err) => app.log.error({ err }, "media: reconcileStuckProcessing failed"));
+
+  registerStreakReminderJob(app.sql, app.log);
 
   app.get("/v1/health", async () => ({ status: "ok" }));
   app.get("/v1/config", async () => ({ sandboxPaymentsEnabled: env.SANDBOX_PAYMENTS_ENABLED }));
