@@ -133,9 +133,17 @@ export async function awardActivity(
 
     const today = todayUtc();
     const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
     let streak: number;
     if (!state.last_active_date || state.last_active_date < yesterday) {
-      streak = 1;
+      // Missed at least one full day. If exactly one day was missed (last
+      // active two days ago) and the user has an unused "streak_freeze" item
+      // (see shop_items.code), consume it to bridge that single gap instead
+      // of resetting — a freeze's payload is `{ days: 1 }`, so it only
+      // covers a one-day gap, not longer absences.
+      const bridged =
+        state.last_active_date === twoDaysAgo && (await repo.consumeStreakFreeze(tx, userId));
+      streak = bridged ? state.streak + 1 : 1;
     } else if (state.last_active_date === yesterday) {
       streak = state.streak + 1;
     } else {

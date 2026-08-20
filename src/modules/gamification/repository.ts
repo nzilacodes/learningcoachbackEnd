@@ -248,6 +248,22 @@ export async function setInventoryEquipped(sql: Sql, userId: string, itemId: str
   });
 }
 
+// Deletes the user's owned "streak_freeze" item (identified by its stable
+// shop_items.code, not a hand-typed uuid) and reports whether one was
+// actually there to consume. DELETE...RETURNING in one statement rather than
+// a check-then-delete — matches this codebase's usual pattern for avoiding a
+// TOCTOU window where two concurrent awardActivity calls could both see the
+// freeze as present and both apply it.
+export async function consumeStreakFreeze(sql: SqlClient, userId: string): Promise<boolean> {
+  const rows = await sql`
+    DELETE FROM public.user_inventory
+    WHERE user_id = ${userId}
+      AND item_id = (SELECT id FROM public.shop_items WHERE code = 'streak_freeze')
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
 // ---------- Achievements ----------
 
 export async function listUserAchievements(sql: Sql, userId: string) {
