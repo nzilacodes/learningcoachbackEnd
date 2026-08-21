@@ -1,7 +1,10 @@
 import { z } from "zod";
 
+// max raised from 100 to 500: the admin dashboard (admin.tsx) fetches the
+// user list with limit=200 in one shot (no pagination UI), so 100 rejected
+// every single load with a raw ZodError instead of a page of users.
 export const listUsersQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  limit: z.coerce.number().int().min(1).max(500).default(20),
   offset: z.coerce.number().int().min(0).default(0),
 });
 
