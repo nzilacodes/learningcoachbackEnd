@@ -17,6 +17,7 @@ export const ErrorCode = {
   AI_SERVICE_LIMIT_REACHED: "AI_SERVICE_LIMIT_REACHED",
   AI_EVALUATION_FAILED: "AI_EVALUATION_FAILED",
   AUDIO_NO_SPEECH_DETECTED: "AUDIO_NO_SPEECH_DETECTED",
+  HEARTS_DEPLETED: "HEARTS_DEPLETED",
   SERVER_ERROR: "SERVER_ERROR",
   UNKNOWN_ERROR: "UNKNOWN_ERROR",
 } as const;
@@ -127,6 +128,16 @@ export class NoSpeechDetectedError extends AppError {
       logLevel: "info",
       internalDetail,
     });
+  }
+}
+
+// Out of lives on a graded lesson — the fix is "wait for regen" (or upgrade),
+// not "retry now", but the UI still needs to offer a countdown, so this is
+// modeled as retryable=true the same way RateLimitedError is: the *request*
+// can be retried once the wait is over, even though retrying immediately won't help.
+export class HeartsDepletedError extends AppError {
+  constructor(message = "Out of hearts") {
+    super(ErrorCode.HEARTS_DEPLETED, message, { statusCode: 403, retryable: true, logLevel: "info" });
   }
 }
 
