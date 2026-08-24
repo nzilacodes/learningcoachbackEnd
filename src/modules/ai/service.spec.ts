@@ -25,6 +25,22 @@ describe("classifyTranscription", () => {
     expect(result.decision).toBe("rejected_no_speech");
   });
 
+  // Reproduces a real observation from testing against the live Whisper API
+  // with a genuinely silent 2s WAV: no_speech_prob=0.94 (unambiguous silence)
+  // but avg_logprob only -0.51 (not below the -1.0 logprob threshold), because
+  // Whisper still hallucinates a short, "confident" token once it commits to
+  // one. An AND of both signals would have missed this and fallen through to
+  // the narrower secondary net (or slipped through entirely for a phrase not
+  // on the list) — no_speech_prob alone must be enough to reject it.
+  it("rejects real silent audio via no_speech_prob alone, even when avg_logprob isn't very negative", () => {
+    const result = classifyTranscription({
+      text: "you",
+      duration: 2,
+      segments: [segment({ start: 0, end: 2, avg_logprob: -0.51, no_speech_prob: 0.94 })],
+    });
+    expect(result.decision).toBe("rejected_no_speech");
+  });
+
   it("rejects other known Whisper hallucination phrases on silence the same way", () => {
     const result = classifyTranscription({
       text: "Thanks for watching!",
@@ -70,6 +86,22 @@ describe("classifyTranscription", () => {
       text: "you",
       duration: 2,
       segments: [segment({ start: 0, end: 2, avg_logprob: -0.1, no_speech_prob: 0.05 })],
+    });
+    expect(result.decision).toBe("accepted");
+    expect(result.text).toBe("you");
+  });
+
+  // Reproduces a real regression caught by live-testing against the Whisper
+  // API: a genuine TTS-spoken "you" is naturally short (0.48s — real words
+  // just don't take 1.5s to say) with a low, not-elevated no_speech_prob
+  // (0.18). An earlier version of this function also rejected short clips on
+  // duration alone, which wrongly caught this case — duration must never be
+  // an independent trigger, only no_speech_prob.
+  it("accepts a short, genuinely-spoken 'you' — duration alone must never trigger rejection", () => {
+    const result = classifyTranscription({
+      text: "you",
+      duration: 0.48,
+      segments: [segment({ start: 0, end: 0.48, avg_logprob: -0.67, no_speech_prob: 0.18 })],
     });
     expect(result.decision).toBe("accepted");
     expect(result.text).toBe("you");

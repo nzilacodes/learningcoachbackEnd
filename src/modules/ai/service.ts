@@ -63,9 +63,14 @@ export function resolveLanguage(input?: string): string {
 // is just a cheap last-resort backstop.
 const MIN_UPLOAD_BYTES = 1000;
 
-// Whisper's own reference implementation (openai/whisper's decode.py /
-// transcribe.py) treats a segment as "no speech" only when BOTH signals agree
-// — reusing OpenAI's own published defaults here, not arbitrary numbers.
+// Thresholds are OpenAI's own published Whisper defaults, but combined with
+// OR rather than AND: live-tested against a genuinely silent 2s clip, Whisper
+// returned no_speech_prob=0.94 (unambiguous silence) alongside avg_logprob=
+// -0.51 — well above -1.0, because once it commits to hallucinating a short,
+// common token, it emits it "confidently". Requiring both signals to agree
+// missed this real case; no_speech_prob alone is the more reliable silence
+// signal, with avg_logprob still available to catch a separately-garbled
+// (not silent) segment on its own.
 const NO_SPEECH_PROB_THRESHOLD = 0.6;
 const LOGPROB_THRESHOLD = -1.0;
 // A segment-weighted-by-duration fraction below this could still be legitimate
@@ -76,13 +81,15 @@ const SILENT_FRACTION_THRESHOLD = 0.8;
 // Secondary, narrow backstop: Whisper is documented to hallucinate these
 // specific stock phrases on silence/noise (trained on YouTube caption data
 // where such segments are captioned this way). This only fires alongside a
-// still-elevated confidence signal or a very short clip — never on the text
-// match alone — so it can't become a de facto blacklist of these words for a
-// learner genuinely saying them (e.g. drilling "you" in word-card.tsx).
+// still-elevated confidence signal — never on the text match alone, and NOT
+// on short duration alone either — so it can't become a de facto blacklist of
+// these words for a learner genuinely saying them (e.g. drilling "you" in
+// word-card.tsx). Live-tested: a real TTS-spoken "you" clocked in at 0.48s
+// with no_speech_prob=0.18 — duration alone would have wrongly rejected it,
+// which is exactly why duration was dropped as a trigger here.
 const HALLUCINATION_PHRASES = new Set(["you", "thank you", "thanks for watching", "bye", "subscribe"]);
 const HALLUCINATION_MAX_WORDS = 3;
 const HALLUCINATION_ELEVATED_NO_SPEECH_PROB = 0.3;
-const HALLUCINATION_MIN_DURATION_SEC = 1.5;
 
 type WhisperSegment = { start: number; end: number; avg_logprob: number; no_speech_prob: number };
 type WhisperVerboseJson = { text?: string; language?: string; duration?: number; segments?: WhisperSegment[] };
@@ -107,7 +114,7 @@ export function classifyTranscription(data: WhisperVerboseJson): {
   const avgLogprob = weightedAvg("avg_logprob");
 
   const silentDur = segments
-    .filter((seg) => seg.no_speech_prob > NO_SPEECH_PROB_THRESHOLD && seg.avg_logprob < LOGPROB_THRESHOLD)
+    .filter((seg) => seg.no_speech_prob > NO_SPEECH_PROB_THRESHOLD || seg.avg_logprob < LOGPROB_THRESHOLD)
     .reduce((sum, seg) => sum + durationOf(seg), 0);
   if (silentDur / totalDur >= SILENT_FRACTION_THRESHOLD) {
     return { decision: "rejected_no_speech", text: "", avgNoSpeechProb, avgLogprob };
@@ -118,7 +125,7 @@ export function classifyTranscription(data: WhisperVerboseJson): {
   if (
     wordCount <= HALLUCINATION_MAX_WORDS &&
     HALLUCINATION_PHRASES.has(normalized) &&
-    (avgNoSpeechProb > HALLUCINATION_ELEVATED_NO_SPEECH_PROB || totalDur < HALLUCINATION_MIN_DURATION_SEC)
+    avgNoSpeechProb > HALLUCINATION_ELEVATED_NO_SPEECH_PROB
   ) {
     return { decision: "rejected_low_confidence", text: "", avgNoSpeechProb, avgLogprob };
   }
