@@ -16,6 +16,7 @@ export const ErrorCode = {
   AI_SERVICE_TIMEOUT: "AI_SERVICE_TIMEOUT",
   AI_SERVICE_LIMIT_REACHED: "AI_SERVICE_LIMIT_REACHED",
   AI_EVALUATION_FAILED: "AI_EVALUATION_FAILED",
+  AUDIO_NO_SPEECH_DETECTED: "AUDIO_NO_SPEECH_DETECTED",
   SERVER_ERROR: "SERVER_ERROR",
   UNKNOWN_ERROR: "UNKNOWN_ERROR",
 } as const;
@@ -108,6 +109,24 @@ export class PaymentRequiredError extends AppError {
 export class LockedError extends AppError {
   constructor(message = "Account temporarily locked") {
     super(ErrorCode.PERMISSION_DENIED, message, { statusCode: 423, retryable: false, logLevel: "warn" });
+  }
+}
+
+// The audio was received and sent to the STT provider, but no usable speech
+// was found in it (silence, noise, or a clip too short/ambiguous to trust) —
+// not a provider failure. 422 (not 400): the request itself was well-formed,
+// the *content* just didn't contain what was needed. Retryable because the
+// fix is simply "record again", which the frontend surfaces as a friendly
+// prompt (see learningcoach's ErrorCodeMap) instead of ever showing a
+// hallucinated transcript like "you".
+export class NoSpeechDetectedError extends AppError {
+  constructor(reason: "silence" | "low_confidence", internalDetail?: unknown) {
+    super(ErrorCode.AUDIO_NO_SPEECH_DETECTED, `No usable speech detected (${reason})`, {
+      statusCode: 422,
+      retryable: true,
+      logLevel: "info",
+      internalDetail,
+    });
   }
 }
 

@@ -45,7 +45,102 @@ export async function synthesizeSpeech(input: { text: string; voice: string; ins
   return Buffer.from(await upstream.arrayBuffer());
 }
 
-export async function transcribeAudio(file: { buffer: Buffer; filename: string; mimetype: string }) {
+const SUPPORTED_STT_LANGUAGES = new Set(["en", "pt"]);
+
+// The app is an English-learning app: every scripted speaking/reading/
+// placement exercise's target text is English, so "en" is the safest
+// default — leaving language unset would let Whisper auto-detect, which is
+// *more* likely to misfire (and hallucinate) on short/ambiguous clips than a
+// pinned language is.
+export function resolveLanguage(input?: string): string {
+  return input && SUPPORTED_STT_LANGUAGES.has(input) ? input : "en";
+}
+
+// A buffer this small can't contain a real recording (a MediaRecorder/WAV
+// container has some header overhead even with zero audio frames) — reject
+// before spending an OpenAI call on it. The real silence/no-speech defense is
+// the client-side duration/energy gate and the confidence check below; this
+// is just a cheap last-resort backstop.
+const MIN_UPLOAD_BYTES = 1000;
+
+// Whisper's own reference implementation (openai/whisper's decode.py /
+// transcribe.py) treats a segment as "no speech" only when BOTH signals agree
+// — reusing OpenAI's own published defaults here, not arbitrary numbers.
+const NO_SPEECH_PROB_THRESHOLD = 0.6;
+const LOGPROB_THRESHOLD = -1.0;
+// A segment-weighted-by-duration fraction below this could still be legitimate
+// trailing/leading silence around real speech; only reject when the *whole*
+// clip is effectively silence.
+const SILENT_FRACTION_THRESHOLD = 0.8;
+
+// Secondary, narrow backstop: Whisper is documented to hallucinate these
+// specific stock phrases on silence/noise (trained on YouTube caption data
+// where such segments are captioned this way). This only fires alongside a
+// still-elevated confidence signal or a very short clip — never on the text
+// match alone — so it can't become a de facto blacklist of these words for a
+// learner genuinely saying them (e.g. drilling "you" in word-card.tsx).
+const HALLUCINATION_PHRASES = new Set(["you", "thank you", "thanks for watching", "bye", "subscribe"]);
+const HALLUCINATION_MAX_WORDS = 3;
+const HALLUCINATION_ELEVATED_NO_SPEECH_PROB = 0.3;
+const HALLUCINATION_MIN_DURATION_SEC = 1.5;
+
+type WhisperSegment = { start: number; end: number; avg_logprob: number; no_speech_prob: number };
+type WhisperVerboseJson = { text?: string; language?: string; duration?: number; segments?: WhisperSegment[] };
+
+export type TranscriptionDecision = "accepted" | "rejected_no_speech" | "rejected_low_confidence";
+
+export function classifyTranscription(data: WhisperVerboseJson): {
+  decision: TranscriptionDecision;
+  text: string;
+  avgNoSpeechProb?: number;
+  avgLogprob?: number;
+} {
+  const segments = data.segments ?? [];
+  const text = (data.text ?? "").trim();
+  if (!text || segments.length === 0) return { decision: "rejected_no_speech", text: "" };
+
+  const durationOf = (seg: WhisperSegment) => Math.max(0, seg.end - seg.start);
+  const totalDur = segments.reduce((sum, seg) => sum + durationOf(seg), 0) || 1;
+  const weightedAvg = (key: "no_speech_prob" | "avg_logprob") =>
+    segments.reduce((sum, seg) => sum + seg[key] * durationOf(seg), 0) / totalDur;
+  const avgNoSpeechProb = weightedAvg("no_speech_prob");
+  const avgLogprob = weightedAvg("avg_logprob");
+
+  const silentDur = segments
+    .filter((seg) => seg.no_speech_prob > NO_SPEECH_PROB_THRESHOLD && seg.avg_logprob < LOGPROB_THRESHOLD)
+    .reduce((sum, seg) => sum + durationOf(seg), 0);
+  if (silentDur / totalDur >= SILENT_FRACTION_THRESHOLD) {
+    return { decision: "rejected_no_speech", text: "", avgNoSpeechProb, avgLogprob };
+  }
+
+  const normalized = text.toLowerCase().replace(/[.,!?]/g, "").trim();
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  if (
+    wordCount <= HALLUCINATION_MAX_WORDS &&
+    HALLUCINATION_PHRASES.has(normalized) &&
+    (avgNoSpeechProb > HALLUCINATION_ELEVATED_NO_SPEECH_PROB || totalDur < HALLUCINATION_MIN_DURATION_SEC)
+  ) {
+    return { decision: "rejected_low_confidence", text: "", avgNoSpeechProb, avgLogprob };
+  }
+
+  return { decision: "accepted", text, avgNoSpeechProb, avgLogprob };
+}
+
+export async function transcribeAudio(file: { buffer: Buffer; filename: string; mimetype: string; language?: string }) {
+  const language = resolveLanguage(file.language);
+  if (file.buffer.length < MIN_UPLOAD_BYTES) {
+    return {
+      text: "",
+      decision: "rejected_no_speech" as const,
+      languageRequested: language,
+      languageDetected: undefined,
+      durationSec: undefined,
+      avgNoSpeechProb: undefined,
+      avgLogprob: undefined,
+      segmentCount: 0,
+    };
+  }
+
   const apiKey = requireOpenAiKey();
   const ext = file.mimetype.includes("wav")
     ? "wav"
@@ -59,6 +154,9 @@ export async function transcribeAudio(file: { buffer: Buffer; filename: string; 
   const upstream = new FormData();
   upstream.append("file", new Blob([file.buffer], { type: file.mimetype || "audio/webm" }), `recording.${ext}`);
   upstream.append("model", STT_MODEL);
+  upstream.append("language", language);
+  upstream.append("response_format", "verbose_json");
+  upstream.append("temperature", "0");
 
   const res = await fetchWithTimeout(AI_STT_URL, {
     method: "POST",
@@ -66,8 +164,18 @@ export async function transcribeAudio(file: { buffer: Buffer; filename: string; 
     body: upstream,
   });
   if (!res.ok) throw await classifyOpenAiFailure(res, "stt");
-  const data = (await res.json()) as { text?: string };
-  return { text: data.text ?? "" };
+  const data = (await res.json()) as WhisperVerboseJson;
+  const classified = classifyTranscription(data);
+  return {
+    text: classified.text,
+    decision: classified.decision,
+    languageRequested: language,
+    languageDetected: data.language,
+    durationSec: data.duration,
+    avgNoSpeechProb: classified.avgNoSpeechProb,
+    avgLogprob: classified.avgLogprob,
+    segmentCount: data.segments?.length ?? 0,
+  };
 }
 
 const WordSchema = z.object({

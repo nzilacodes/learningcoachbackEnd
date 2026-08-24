@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../../plugins/auth.js";
-import { ValidationError } from "../../lib/errors.js";
+import { ValidationError, NoSpeechDetectedError } from "../../lib/errors.js";
 import {
   speechSchema,
   dictionaryParamsSchema,
@@ -36,12 +36,46 @@ export default async function aiRoutes(fastify: FastifyInstance) {
       const upload = await request.file();
       if (!upload) throw new ValidationError("Missing audio file");
       const buffer = await upload.toBuffer();
+      // The client must send the "language" field before "file" in the
+      // FormData — @fastify/multipart/busboy parses parts in stream order, so
+      // a field appearing after the file part isn't guaranteed to be present
+      // on upload.fields yet by this point.
+      const languageField = upload.fields.language;
+      const language =
+        languageField && !Array.isArray(languageField) && languageField.type === "field"
+          ? String(languageField.value)
+          : undefined;
+
       const result = await service.transcribeAudio({
         buffer,
         filename: upload.filename,
         mimetype: upload.mimetype,
+        language,
       });
-      return result;
+
+      request.log.info(
+        {
+          requestId: request.id,
+          userId: request.userId,
+          sizeBytes: buffer.length,
+          mimetype: upload.mimetype,
+          languageRequested: result.languageRequested,
+          languageDetected: result.languageDetected,
+          durationSec: result.durationSec,
+          segmentCount: result.segmentCount,
+          avgNoSpeechProb: result.avgNoSpeechProb,
+          avgLogprob: result.avgLogprob,
+          textLength: result.text.length,
+          decision: result.decision,
+        },
+        "stt_transcription",
+      );
+
+      if (result.decision !== "accepted") {
+        throw new NoSpeechDetectedError(result.decision === "rejected_no_speech" ? "silence" : "low_confidence");
+      }
+
+      return { text: result.text };
     },
   );
 
