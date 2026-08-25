@@ -206,6 +206,42 @@ export async function deleteExercise(sql: Sql, id: string) {
   await sql`DELETE FROM public.exercises WHERE id = ${id}`;
 }
 
+export type ExerciseReviewSummaryRow = {
+  lesson_id: string;
+  draft: number;
+  in_review: number;
+  published: number;
+};
+
+/** One row per lesson that has any exercises, with counts by content_status —
+ * powers the admin curriculum screen's review-progress badges so an admin
+ * can see where the 1,000+-exercise AI-generated backlog actually is without
+ * opening every lesson one by one. */
+export async function getExerciseReviewSummary(sql: Sql) {
+  return sql<ExerciseReviewSummaryRow[]>`
+    SELECT
+      lesson_id,
+      count(*) FILTER (WHERE content_status = 'draft')::int AS draft,
+      count(*) FILTER (WHERE content_status = 'in_review')::int AS in_review,
+      count(*) FILTER (WHERE content_status = 'published')::int AS published
+    FROM public.exercises
+    GROUP BY lesson_id
+  `;
+}
+
+/** Publishes every non-published exercise in a lesson in one statement —
+ * the bulk counterpart to the per-exercise PATCH .../content_status, for
+ * reviewing a lesson's whole batch at once instead of one dropdown at a time.
+ * Returns how many rows actually flipped. */
+export async function publishAllExercisesForLesson(sql: Sql, lessonId: string): Promise<number> {
+  const rows = await sql`
+    UPDATE public.exercises SET content_status = 'published'
+    WHERE lesson_id = ${lessonId} AND content_status != 'published'
+    RETURNING id
+  `;
+  return rows.length;
+}
+
 export async function isLessonAlreadyCompleted(sql: Sql, userId: string, lessonId: string): Promise<boolean> {
   const rows = await sql`
     SELECT 1 FROM public.lesson_progress

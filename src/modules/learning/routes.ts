@@ -46,10 +46,25 @@ export default async function learningRoutes(fastify: FastifyInstance) {
     return service.updateLessonAdmin(request.server.sql, id, patch);
   });
 
+  // Curriculum-wide, one row per lesson with any exercises — powers the
+  // admin curriculum screen's review-progress badges (draft/in_review/
+  // published counts) without fetching all ~1,450 exercise rows client-side.
+  fastify.get("/admin/exercises/review-summary", { preHandler: adminOnly }, async (request) => {
+    return service.getExerciseReviewSummary(request.server.sql);
+  });
+
   fastify.get("/admin/lessons/:id/exercises", { preHandler: adminOnly }, async (request) => {
     const { id } = lessonIdParamsSchema.parse(request.params);
     const { status } = listExercisesAdminQuerySchema.parse(request.query);
     return service.listExercisesAdmin(request.server.sql, id, status);
+  });
+
+  // Publishes every non-published exercise in a lesson in one click — the
+  // bulk counterpart to flipping each exercise's status dropdown one at a
+  // time, needed at the scale the AI content pipeline produces.
+  fastify.post("/admin/lessons/:id/exercises/publish-all", { preHandler: adminOnly }, async (request) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    return service.publishAllExercisesAdmin(request.server.sql, id);
   });
 
   // Triggers the same AI content-generation pipeline as `npm run

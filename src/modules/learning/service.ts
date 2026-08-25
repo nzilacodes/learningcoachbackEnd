@@ -74,6 +74,15 @@ export async function listExercisesAdmin(sql: Sql, lessonId: string, status?: st
   return repo.listExercisesForLessonAdmin(sql, lessonId, status);
 }
 
+export const getExerciseReviewSummary = repo.getExerciseReviewSummary;
+
+export async function publishAllExercisesAdmin(sql: Sql, lessonId: string) {
+  const lesson = await repo.getLessonByIdAdmin(sql, lessonId);
+  if (!lesson) throw new NotFoundError("Lesson not found");
+  const published = await repo.publishAllExercisesForLesson(sql, lessonId);
+  return { published };
+}
+
 /** Admin-triggered single-lesson (re)generation — same underlying pipeline as
  * `npm run generate:exercises`, exposed from the curriculum editor. Always
  * lands as content_status='draft'; never visible to students until reviewed. */
