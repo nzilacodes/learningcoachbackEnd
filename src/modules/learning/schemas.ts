@@ -44,6 +44,14 @@ export const updateExerciseSchema = z.object({
   correctAnswer: z.unknown().optional(),
   xpReward: z.number().int().nonnegative().max(200).optional(),
   orderIndex: z.number().int().nonnegative().optional(),
+  // Review workflow for AI-generated content (see src/jobs/generate-lesson-content.ts):
+  // admins flip draft -> in_review -> published from the existing exercise
+  // editor once they've checked a generated exercise is correct.
+  contentStatus: z.enum(["draft", "in_review", "published"]).optional(),
+});
+
+export const listExercisesAdminQuerySchema = z.object({
+  status: z.enum(["draft", "in_review", "published"]).optional(),
 });
 
 export const videoHistoryUpsertSchema = z.object({

@@ -18,6 +18,7 @@ import gamificationRoutes from "./modules/gamification/routes.js";
 import billingRoutes from "./modules/billing/routes.js";
 import aiRoutes from "./modules/ai/routes.js";
 import learningRoutes from "./modules/learning/routes.js";
+import gradingRoutes from "./modules/grading/routes.js";
 import adminRoutes from "./modules/admin/routes.js";
 import communityRoutes from "./modules/community/routes.js";
 import contactRoutes from "./modules/contact/routes.js";
@@ -88,6 +89,7 @@ export async function buildApp() {
   await app.register(billingRoutes, { prefix: "/v1" });
   await app.register(aiRoutes, { prefix: "/v1" });
   await app.register(learningRoutes, { prefix: "/v1" });
+  await app.register(gradingRoutes, { prefix: "/v1" });
   await app.register(adminRoutes, { prefix: "/v1" });
   await app.register(communityRoutes, { prefix: "/v1" });
   await app.register(contactRoutes, { prefix: "/v1" });

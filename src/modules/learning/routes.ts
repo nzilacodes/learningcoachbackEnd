@@ -12,6 +12,7 @@ import {
   exerciseIdParamsSchema,
   createExerciseSchema,
   updateExerciseSchema,
+  listExercisesAdminQuerySchema,
 } from "./schemas.js";
 import * as service from "./service.js";
 
@@ -47,7 +48,17 @@ export default async function learningRoutes(fastify: FastifyInstance) {
 
   fastify.get("/admin/lessons/:id/exercises", { preHandler: adminOnly }, async (request) => {
     const { id } = lessonIdParamsSchema.parse(request.params);
-    return service.listExercisesAdmin(request.server.sql, id);
+    const { status } = listExercisesAdminQuerySchema.parse(request.query);
+    return service.listExercisesAdmin(request.server.sql, id, status);
+  });
+
+  // Triggers the same AI content-generation pipeline as `npm run
+  // generate:exercises`, scoped to one lesson — always lands as
+  // content_status='draft', invisible to students until reviewed via the
+  // exercise editor below.
+  fastify.post("/admin/lessons/:id/generate-exercises", { preHandler: adminOnly }, async (request) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    return service.generateExercisesAdmin(request.server.sql, id);
   });
 
   fastify.post("/admin/lessons/:id/exercises", { preHandler: adminOnly }, async (request, reply) => {

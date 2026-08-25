@@ -8,6 +8,7 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/db/migrate.ts",
+    "generate:exercises": "tsx src/jobs/generate-lesson-content.ts",
     "test": "vitest run"
   },
   "dependencies": {

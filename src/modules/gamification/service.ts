@@ -88,8 +88,15 @@ function resolveReward(source: ActivitySource, meta: Record<string, unknown>): {
   if (source !== "game") return DEFAULT_REWARDS[source];
 
   const gameId = typeof meta.gameId === "string" ? meta.gameId : "";
-  const xp = GAME_REGISTRY[gameId];
-  if (!xp) throw new BadRequestError(`Unknown gameId: ${gameId || "(missing)"}`);
+  const maxXp = GAME_REGISTRY[gameId];
+  if (!maxXp) throw new BadRequestError(`Unknown gameId: ${gameId || "(missing)"}`);
+
+  // score/total are optional and, when present, only ever scale the reward
+  // *down* from the server-known maxXp — a client can shrink its own payout
+  // by under-reporting, never inflate it by claiming an XP number directly.
+  const score = typeof meta.score === "number" && Number.isFinite(meta.score) ? meta.score : null;
+  const total = typeof meta.total === "number" && meta.total > 0 ? meta.total : null;
+  const xp = score !== null && total !== null ? Math.round(maxXp * Math.min(1, Math.max(0, score / total))) : maxXp;
   return { xp, coins: Math.round(xp / 3) };
 }
 

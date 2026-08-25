@@ -54,18 +54,97 @@ export async function updateLesson(sql: Sql, id: string, patch: LessonPatch) {
   return row ?? null;
 }
 
-// Unlike level-exam questions, lesson quiz answers aren't withheld — these are
-// low-stakes practice checks (a few XP, no progression gate), not the graded
-// assessments that unlock the next CEFR level.
+// Only ever serves content_status='published' rows to students — draft/
+// in_review rows (including anything the AI content-generation pipeline
+// inserts) stay invisible until an admin explicitly publishes them via
+// PATCH /admin/exercises/:id.
+export type ExerciseRow = {
+  id: string;
+  type: string;
+  prompt: string;
+  data: Record<string, unknown> | null;
+  correct_answer: unknown;
+  xp_reward: number;
+  order_index: number;
+};
+
 export async function listExercisesForLesson(sql: Sql, lessonId: string) {
-  return sql`
+  return sql<ExerciseRow[]>`
     SELECT id, type, prompt, data, correct_answer, xp_reward, order_index
-    FROM public.exercises WHERE lesson_id = ${lessonId} ORDER BY order_index
+    FROM public.exercises
+    WHERE lesson_id = ${lessonId} AND content_status = 'published'
+    ORDER BY order_index
   `;
 }
 
-export async function listExercisesForLessonAdmin(sql: Sql, lessonId: string) {
-  return sql`SELECT * FROM public.exercises WHERE lesson_id = ${lessonId} ORDER BY order_index`;
+// Used by completeLesson (learning/service.ts) to decide whether a lesson
+// must go through the graded POST /lessons/:id/submit flow instead of the
+// legacy no-body POST /lessons/:id/complete — and by grading/service.ts to
+// decide whether to fall back to that legacy path itself.
+export async function hasPublishedExercises(sql: Sql, lessonId: string): Promise<boolean> {
+  const rows = await sql`
+    SELECT 1 FROM public.exercises WHERE lesson_id = ${lessonId} AND content_status = 'published' LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
+/** Any status (draft/in_review/published) — used by the content-generation
+ * pipeline's idempotency check, which must never generate a second batch for
+ * a lesson that already has exercises pending review. */
+export async function hasAnyExercises(sql: Sql, lessonId: string): Promise<boolean> {
+  const rows = await sql`SELECT 1 FROM public.exercises WHERE lesson_id = ${lessonId} LIMIT 1`;
+  return rows.length > 0;
+}
+
+export type LessonForGeneration = {
+  id: string;
+  title: string;
+  summary: string | null;
+  content: Record<string, unknown> | null;
+  lesson_type: string;
+  level: string;
+  unit_title: string;
+};
+
+/**
+ * quiz/final_test lessons with zero exercises of any status yet — the exact
+ * set src/jobs/generate-lesson-content.ts needs to backfill. Optional
+ * level/unit filters let the CLI run controlled batches instead of all 1,572
+ * placeholder lessons at once.
+ */
+/** Single-lesson variant of listLessonsNeedingExercises, for the admin-triggered
+ * "regenerate this lesson" action (POST /admin/lessons/:id/generate-exercises). */
+export async function getLessonForGeneration(sql: Sql, lessonId: string): Promise<LessonForGeneration | null> {
+  const rows = await sql<LessonForGeneration[]>`
+    SELECT l.id, l.title, l.summary, l.content, l.lesson_type, c.level::text AS level, u.title AS unit_title
+    FROM public.lessons l
+    JOIN public.units u ON u.id = l.unit_id
+    JOIN public.courses c ON c.id = u.course_id
+    WHERE l.id = ${lessonId}
+  `;
+  return rows[0] ?? null;
+}
+
+export async function listLessonsNeedingExercises(sql: Sql, filter: { level?: string; unitId?: string }) {
+  return sql<LessonForGeneration[]>`
+    SELECT l.id, l.title, l.summary, l.content, l.lesson_type, c.level::text AS level, u.title AS unit_title
+    FROM public.lessons l
+    JOIN public.units u ON u.id = l.unit_id
+    JOIN public.courses c ON c.id = u.course_id
+    WHERE l.lesson_type IN ('quiz', 'final_test')
+      AND ${filter.level ? sql`c.level = ${filter.level}::public.cefr_level` : sql`true`}
+      AND ${filter.unitId ? sql`u.id = ${filter.unitId}` : sql`true`}
+      AND NOT EXISTS (SELECT 1 FROM public.exercises e WHERE e.lesson_id = l.id)
+    ORDER BY c.level, u.order_index, l.order_index
+  `;
+}
+
+export async function listExercisesForLessonAdmin(sql: Sql, lessonId: string, status?: string) {
+  return sql`
+    SELECT * FROM public.exercises
+    WHERE lesson_id = ${lessonId} AND ${status ? sql`content_status = ${status}` : sql`true`}
+    ORDER BY order_index
+  `;
 }
 
 export type ExerciseInput = {
@@ -75,19 +154,30 @@ export type ExerciseInput = {
   correctAnswer?: unknown;
   xpReward: number;
   orderIndex: number;
+  // Only ever set by the AI content-generation pipeline (src/jobs/generate-lesson-content.ts)
+  // and its admin-triggered counterpart — the manual admin CRUD form never
+  // sets these, so a hand-authored exercise still defaults to 'published'
+  // exactly like before this column existed.
+  contentStatus?: "draft" | "in_review" | "published";
+  generatedBy?: string;
+  generationBatchId?: string;
 };
 
 // order_index is computed here (max + 1), not taken from the client — the
 // admin UI doesn't track a reliable "next" value across concurrent adds.
 export async function createExercise(sql: Sql, lessonId: string, input: ExerciseInput) {
   const [row] = await sql`
-    INSERT INTO public.exercises (lesson_id, type, prompt, data, correct_answer, xp_reward, order_index)
+    INSERT INTO public.exercises
+      (lesson_id, type, prompt, data, correct_answer, xp_reward, order_index, content_status, generated_by, generation_batch_id)
     VALUES (
       ${lessonId}, ${input.type}, ${input.prompt},
       ${input.data !== undefined ? sql.json(input.data as JSONValue) : null},
       ${input.correctAnswer !== undefined ? sql.json(input.correctAnswer as JSONValue) : null},
       ${input.xpReward},
-      COALESCE((SELECT max(order_index) + 1 FROM public.exercises WHERE lesson_id = ${lessonId}), 0)
+      COALESCE((SELECT max(order_index) + 1 FROM public.exercises WHERE lesson_id = ${lessonId}), 0),
+      ${input.contentStatus ?? "published"},
+      ${input.generatedBy ?? null},
+      ${input.generationBatchId ?? null}
     )
     RETURNING *
   `;
@@ -104,7 +194,8 @@ export async function updateExercise(sql: Sql, id: string, patch: ExercisePatch)
       data = COALESCE(${patch.data !== undefined ? sql.json(patch.data as JSONValue) : null}, data),
       correct_answer = COALESCE(${patch.correctAnswer !== undefined ? sql.json(patch.correctAnswer as JSONValue) : null}, correct_answer),
       xp_reward = COALESCE(${patch.xpReward ?? null}, xp_reward),
-      order_index = COALESCE(${patch.orderIndex ?? null}, order_index)
+      order_index = COALESCE(${patch.orderIndex ?? null}, order_index),
+      content_status = COALESCE(${patch.contentStatus ?? null}, content_status)
     WHERE id = ${id}
     RETURNING *
   `;
