@@ -16,7 +16,7 @@ ALTER TABLE public.exercises
     CHECK (content_status IN ('draft', 'in_review', 'published')),
   ADD COLUMN IF NOT EXISTS generated_by TEXT,
   ADD COLUMN IF NOT EXISTS generation_batch_id UUID,
-  ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES auth.users(id),
+  ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES public.app_users(id),
   ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_exercises_content_status ON public.exercises(content_status);
 CREATE INDEX IF NOT EXISTS idx_exercises_generation_batch ON public.exercises(generation_batch_id);
@@ -33,7 +33,7 @@ ALTER TABLE public.lessons
 -- =========================
 CREATE TABLE IF NOT EXISTS public.lesson_attempts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.app_users(id) ON DELETE CASCADE,
   lesson_id UUID NOT NULL REFERENCES public.lessons(id) ON DELETE CASCADE,
   score INT NOT NULL CHECK (score BETWEEN 0 AND 100),
   passed BOOLEAN NOT NULL,
@@ -83,7 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_exercise_attempt_results_exercise ON public.exerc
 -- 5. user_hearts: Duolingo-style lives, lazily regenerated on read
 -- =========================
 CREATE TABLE IF NOT EXISTS public.user_hearts (
-  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID PRIMARY KEY REFERENCES public.app_users(id) ON DELETE CASCADE,
   hearts INT NOT NULL DEFAULT 5 CHECK (hearts BETWEEN 0 AND 5),
   max_hearts INT NOT NULL DEFAULT 5,
   last_regen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
