@@ -3,7 +3,7 @@ import * as learningRepo from "../learning/repository.js";
 import { assertLessonCompletionAllowed, completeLesson } from "../learning/service.js";
 import { awardActivity } from "../gamification/service.js";
 import { hasActiveSubscription } from "../../lib/subscription.js";
-import { NotFoundError, HeartsDepletedError } from "../../lib/errors.js";
+import { NotFoundError, HeartsDepletedError, UnauthorizedError } from "../../lib/errors.js";
 import * as repo from "./repository.js";
 import { gradeExercise, DETERMINISTIC_TYPES, type GradeResult } from "./graders/index.js";
 
@@ -129,39 +129,55 @@ export async function submitLessonAttempt(
   // unit that must never partially apply. Completion/XP happen afterward,
   // outside this transaction, the same "insert result, then best-effort
   // award" split diagnostic/service.ts already uses for submitDiagnostic.
-  const { attemptId, heartsRemaining } = await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${userId + ":lesson_attempt:" + lessonId}))`;
+  let attemptId: string;
+  let heartsRemaining: number | null;
+  try {
+    ({ attemptId, heartsRemaining } = await sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${userId + ":lesson_attempt:" + lessonId}))`;
 
-    let heartsRemainingTx: number | null = null;
-    if (lesson.hearts_enabled && !isPremium) {
-      heartsRemainingTx = await repo.deductHearts(tx, userId, heartsToLose);
+      let heartsRemainingTx: number | null = null;
+      if (lesson.hearts_enabled && !isPremium) {
+        heartsRemainingTx = await repo.deductHearts(tx, userId, heartsToLose);
+      }
+
+      const id = await repo.insertLessonAttempt(tx, {
+        userId,
+        lessonId,
+        score,
+        passed,
+        correctCount,
+        totalCount,
+        heartsLost: heartsToLose,
+        xpAwarded: 0, // filled in below once completion/XP is settled
+        answers,
+      });
+      await repo.insertExerciseAttemptResults(
+        tx,
+        id,
+        results.map((r) => ({
+          exerciseId: r.exerciseId,
+          submittedAnswer: r.submittedAnswer,
+          isCorrect: r.grade.isCorrect,
+          score: r.grade.score,
+          aiFeedback: r.grade.feedback ?? null,
+        })),
+      );
+
+      return { attemptId: id, heartsRemaining: heartsRemainingTx };
+    }));
+  } catch (err) {
+    // requireAuth only checks the JWT's signature/expiry, not whether its
+    // `sub` still has a row in auth.users — a session cookie survives an
+    // account deletion (or a reset test/dev DB) as a validly-signed token
+    // for a user that no longer exists. That surfaces here as a raw FK
+    // violation on lesson_attempts_user_id_fkey instead of at the auth
+    // boundary; treat it the same as an expired session rather than let a
+    // Postgres error reach the client as an opaque 500.
+    if (err && typeof err === "object" && "code" in err && err.code === "23503") {
+      throw new UnauthorizedError("Session refers to a user that no longer exists");
     }
-
-    const id = await repo.insertLessonAttempt(tx, {
-      userId,
-      lessonId,
-      score,
-      passed,
-      correctCount,
-      totalCount,
-      heartsLost: heartsToLose,
-      xpAwarded: 0, // filled in below once completion/XP is settled
-      answers,
-    });
-    await repo.insertExerciseAttemptResults(
-      tx,
-      id,
-      results.map((r) => ({
-        exerciseId: r.exerciseId,
-        submittedAnswer: r.submittedAnswer,
-        isCorrect: r.grade.isCorrect,
-        score: r.grade.score,
-        aiFeedback: r.grade.feedback ?? null,
-      })),
-    );
-
-    return { attemptId: id, heartsRemaining: heartsRemainingTx };
-  });
+    throw err;
+  }
 
   let xpAwarded = 0;
   let alreadyCompleted = false;
