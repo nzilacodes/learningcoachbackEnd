@@ -1,7 +1,8 @@
 import type { Sql } from "postgres";
 import type { CefrLevel } from "../../lib/cefr.js";
 import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
-import { ForbiddenError } from "../../lib/errors.js";
+import { ForbiddenError, NotFoundError } from "../../lib/errors.js";
+import { logAdminAction } from "../../lib/audit.js";
 import * as repo from "./repository.js";
 
 /**
@@ -51,5 +52,32 @@ export async function listMyCertificates(sql: Sql, userId: string) {
 }
 
 export async function verifyCertificate(sql: Sql, code: string) {
-  return repo.findCertificateByCode(sql, code);
+  const cert = await repo.findCertificateByCode(sql, code);
+  if (!cert) return null;
+  // valid is derived here, never trusted from the row shape a caller might
+  // pass around — a revoked certificate must never come back as valid, no
+  // matter which query populated `cert`.
+  const { revoked_at, revoked_reason, ...rest } = cert as Record<string, unknown>;
+  return { ...rest, valid: !revoked_at, revoked: !!revoked_at, revokedReason: revoked_at ? revoked_reason : null };
+}
+
+export async function listCertificatesAdmin(sql: Sql, params: { search?: string; limit: number }) {
+  const items = await repo.listAllCertificates(sql, params);
+  return { items };
+}
+
+export async function revokeCertificateAdmin(sql: Sql, id: string, adminUserId: string, reason: string) {
+  const result = await repo.revokeCertificate(sql, id, adminUserId, reason);
+  if (!result.found) throw new NotFoundError("Certificate not found");
+  if (!result.already_revoked) {
+    await logAdminAction(sql, {
+      adminUserId,
+      action: "certificate.revoke",
+      entity: "certificate",
+      entityId: id,
+      severity: "warning",
+      metadata: { reason },
+    });
+  }
+  return result;
 }

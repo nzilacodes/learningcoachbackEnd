@@ -174,3 +174,87 @@ export async function reportDiagnostics(sql: Sql, limit: number) {
     LIMIT ${limit}
   `;
 }
+
+export type StudentPerformanceRow = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  cefr_level: string | null;
+  xp: number;
+  streak: number;
+  attempts: number;
+  avg_score: number | null;
+  pass_rate: number | null;
+  last_attempt_at: Date | null;
+};
+
+// Attempt aggregates pre-grouped in a subquery (rather than GROUP BY on the
+// outer join) so the LEFT JOINs to profiles/user_stats don't fan out the
+// per-user attempt rows before they're averaged.
+export async function listStudentPerformance(
+  sql: Sql,
+  { search, limit, offset }: { search?: string; limit: number; offset: number },
+): Promise<StudentPerformanceRow[]> {
+  return sql<StudentPerformanceRow[]>`
+    SELECT u.id, u.email, p.full_name, p.cefr_level,
+           COALESCE(us.xp, 0)::int AS xp,
+           COALESCE(us.streak_days, 0)::int AS streak,
+           COALESCE(la.attempts, 0)::int AS attempts,
+           la.avg_score, la.pass_rate, la.last_attempt_at
+    FROM public.app_users u
+    LEFT JOIN public.profiles p ON p.id = u.id
+    LEFT JOIN public.user_stats us ON us.user_id = u.id
+    LEFT JOIN (
+      SELECT user_id, count(*)::int AS attempts, AVG(score) AS avg_score,
+             AVG(passed::int) * 100 AS pass_rate, MAX(created_at) AS last_attempt_at
+      FROM public.lesson_attempts
+      GROUP BY user_id
+    ) la ON la.user_id = u.id
+    WHERE (
+      ${search ?? null}::text IS NULL
+      OR p.full_name ILIKE ${"%" + (search ?? "") + "%"}
+      OR u.email ILIKE ${"%" + (search ?? "") + "%"}
+    )
+    ORDER BY COALESCE(la.last_attempt_at, u.created_at) DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+}
+
+export type StudentAttemptRow = {
+  id: string;
+  lesson_id: string;
+  lesson_title: string;
+  score: number;
+  passed: boolean;
+  correct_count: number;
+  total_count: number;
+  xp_awarded: number;
+  created_at: Date;
+};
+
+export async function getStudentAttempts(sql: Sql, userId: string, limit: number): Promise<StudentAttemptRow[]> {
+  return sql<StudentAttemptRow[]>`
+    SELECT la.id, la.lesson_id, l.title AS lesson_title, la.score, la.passed,
+           la.correct_count, la.total_count, la.xp_awarded, la.created_at
+    FROM public.lesson_attempts la
+    JOIN public.lessons l ON l.id = la.lesson_id
+    WHERE la.user_id = ${userId}
+    ORDER BY la.created_at DESC
+    LIMIT ${limit}
+  `;
+}
+
+export type LessonPerformanceRow = {
+  lesson_id: string;
+  attempts: number;
+  avg_score: number | null;
+  pass_rate: number | null;
+};
+
+export async function getLessonPerformance(sql: Sql): Promise<LessonPerformanceRow[]> {
+  return sql<LessonPerformanceRow[]>`
+    SELECT lesson_id, count(*)::int AS attempts, AVG(score) AS avg_score, AVG(passed::int) * 100 AS pass_rate
+    FROM public.lesson_attempts
+    GROUP BY lesson_id
+  `;
+}

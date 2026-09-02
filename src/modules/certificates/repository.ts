@@ -47,8 +47,50 @@ export async function listCertificatesForUser(sql: Sql, userId: string) {
 
 export async function findCertificateByCode(sql: Sql, code: string) {
   const rows = await sql`
-    SELECT verification_code, full_name, level, course_title, score, issued_at, signature
+    SELECT verification_code, full_name, level, course_title, score, issued_at, signature,
+           revoked_at, revoked_reason
     FROM public.certificates WHERE verification_code = ${code}
   `;
-  return rows[0] ? { ...rows[0], valid: true } : null;
+  return rows[0] ?? null;
+}
+
+export async function listAllCertificates(sql: Sql, { search, limit }: { search?: string; limit: number }) {
+  return sql`
+    SELECT c.id, c.user_id, c.level, c.score, c.course_title, c.verification_code,
+           c.issued_at, c.revoked_at, c.revoked_reason,
+           p.full_name, u.email
+    FROM public.certificates c
+    JOIN public.app_users u ON u.id = c.user_id
+    LEFT JOIN public.profiles p ON p.id = c.user_id
+    WHERE (
+      ${search ?? null}::text IS NULL
+      OR p.full_name ILIKE ${"%" + (search ?? "") + "%"}
+      OR u.email ILIKE ${"%" + (search ?? "") + "%"}
+      OR c.verification_code ILIKE ${"%" + (search ?? "") + "%"}
+    )
+    ORDER BY c.issued_at DESC
+    LIMIT ${limit}
+  `;
+}
+
+/** Revoking an already-revoked certificate is reported back distinctly
+ * (`already_revoked: true`) rather than silently re-stamping a new
+ * revoked_at/reason over the original one — the first revocation's reason
+ * and timestamp are the ones worth keeping. */
+export async function revokeCertificate(
+  sql: Sql,
+  id: string,
+  adminUserId: string,
+  reason: string,
+): Promise<{ found: boolean; already_revoked: boolean }> {
+  const [updated] = await sql<{ id: string }[]>`
+    UPDATE public.certificates
+    SET revoked_at = now(), revoked_reason = ${reason}, revoked_by = ${adminUserId}
+    WHERE id = ${id} AND revoked_at IS NULL
+    RETURNING id
+  `;
+  if (updated) return { found: true, already_revoked: false };
+
+  const [existing] = await sql<{ id: string }[]>`SELECT id FROM public.certificates WHERE id = ${id}`;
+  return { found: !!existing, already_revoked: !!existing };
 }

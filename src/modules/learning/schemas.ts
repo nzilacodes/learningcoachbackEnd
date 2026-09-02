@@ -24,6 +24,52 @@ export const updateLessonSchema = z.object({
   durationMin: z.number().int().positive().max(300).optional(),
   xpReward: z.number().int().nonnegative().max(1000).optional(),
   isPublished: z.boolean().optional(),
+  orderIndex: z.number().int().nonnegative().optional(),
+});
+
+// Mirrors public.lesson_type (see migrations/20260705145641_...sql) exactly —
+// keep the two in sync if a lesson type is ever added.
+export const LESSON_TYPES = [
+  "vocabulary",
+  "grammar",
+  "reading",
+  "listening",
+  "writing",
+  "speaking",
+  "pronunciation",
+  "ipa",
+  "review",
+  "quiz",
+  "final_test",
+  "project",
+] as const;
+
+export const unitIdParamsSchema = z.object({ id: z.string().uuid() });
+
+export const createUnitSchema = z.object({
+  courseId: z.string().uuid(),
+  title: z.string().trim().min(1).max(300),
+  description: z.string().trim().max(1000).optional(),
+  orderIndex: z.number().int().nonnegative().default(0),
+});
+
+export const updateUnitSchema = z.object({
+  title: z.string().trim().min(1).max(300).optional(),
+  description: z.string().trim().max(1000).optional(),
+  orderIndex: z.number().int().nonnegative().optional(),
+});
+
+export const createLessonSchema = z.object({
+  unitId: z.string().uuid(),
+  title: z.string().trim().min(1).max(300),
+  lessonType: z.enum(LESSON_TYPES),
+  summary: z.string().trim().max(1000).optional(),
+  xpReward: z.number().int().nonnegative().max(1000).default(10),
+  orderIndex: z.number().int().nonnegative().default(0),
+});
+
+export const deleteWithForceQuerySchema = z.object({
+  force: z.coerce.boolean().default(false),
 });
 
 export const exerciseIdParamsSchema = z.object({ id: z.string().uuid() });

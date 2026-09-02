@@ -13,6 +13,11 @@ import {
   createExerciseSchema,
   updateExerciseSchema,
   listExercisesAdminQuerySchema,
+  unitIdParamsSchema,
+  createUnitSchema,
+  updateUnitSchema,
+  createLessonSchema,
+  deleteWithForceQuerySchema,
 } from "./schemas.js";
 import * as service from "./service.js";
 
@@ -44,6 +49,38 @@ export default async function learningRoutes(fastify: FastifyInstance) {
     const { id } = lessonIdParamsSchema.parse(request.params);
     const patch = updateLessonSchema.parse(request.body);
     return service.updateLessonAdmin(request.server.sql, id, patch);
+  });
+
+  fastify.post("/admin/units", { preHandler: adminOnly }, async (request, reply) => {
+    const input = createUnitSchema.parse(request.body);
+    const unit = await service.createUnitAdmin(request.server.sql, input);
+    return reply.status(201).send(unit);
+  });
+
+  fastify.patch("/admin/units/:id", { preHandler: adminOnly }, async (request) => {
+    const { id } = unitIdParamsSchema.parse(request.params);
+    const patch = updateUnitSchema.parse(request.body);
+    return service.updateUnitAdmin(request.server.sql, id, patch);
+  });
+
+  fastify.delete("/admin/units/:id", { preHandler: adminOnly }, async (request, reply) => {
+    const { id } = unitIdParamsSchema.parse(request.params);
+    const { force } = deleteWithForceQuerySchema.parse(request.query);
+    await service.deleteUnitAdmin(request.server.sql, id, force, request.userId);
+    return reply.status(204).send();
+  });
+
+  fastify.post("/admin/lessons", { preHandler: adminOnly }, async (request, reply) => {
+    const input = createLessonSchema.parse(request.body);
+    const lesson = await service.createLessonAdmin(request.server.sql, input);
+    return reply.status(201).send(lesson);
+  });
+
+  fastify.delete("/admin/lessons/:id", { preHandler: adminOnly }, async (request, reply) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    const { force } = deleteWithForceQuerySchema.parse(request.query);
+    await service.deleteLessonAdmin(request.server.sql, id, force, request.userId);
+    return reply.status(204).send();
   });
 
   // Curriculum-wide, one row per lesson with any exercises — powers the

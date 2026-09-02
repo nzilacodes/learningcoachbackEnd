@@ -37,6 +37,7 @@ export type LessonPatch = {
   durationMin?: number;
   xpReward?: number;
   isPublished?: boolean;
+  orderIndex?: number;
 };
 
 export async function updateLesson(sql: Sql, id: string, patch: LessonPatch) {
@@ -47,11 +48,104 @@ export async function updateLesson(sql: Sql, id: string, patch: LessonPatch) {
       content = COALESCE(${patch.content !== undefined ? sql.json(patch.content as JSONValue) : null}, content),
       duration_min = COALESCE(${patch.durationMin ?? null}, duration_min),
       xp_reward = COALESCE(${patch.xpReward ?? null}, xp_reward),
-      is_published = COALESCE(${patch.isPublished ?? null}, is_published)
+      is_published = COALESCE(${patch.isPublished ?? null}, is_published),
+      order_index = COALESCE(${patch.orderIndex ?? null}, order_index)
     WHERE id = ${id}
     RETURNING *
   `;
   return row ?? null;
+}
+
+export type UnitInput = { courseId: string; title: string; description?: string; orderIndex: number };
+
+export async function insertUnit(sql: Sql, input: UnitInput) {
+  const [row] = await sql`
+    INSERT INTO public.units (course_id, title, description, order_index)
+    VALUES (${input.courseId}, ${input.title}, ${input.description ?? null}, ${input.orderIndex})
+    RETURNING *
+  `;
+  return row!;
+}
+
+export type UnitPatch = { title?: string; description?: string; orderIndex?: number };
+
+export async function updateUnit(sql: Sql, id: string, patch: UnitPatch) {
+  const [row] = await sql`
+    UPDATE public.units SET
+      title = COALESCE(${patch.title ?? null}, title),
+      description = COALESCE(${patch.description ?? null}, description),
+      order_index = COALESCE(${patch.orderIndex ?? null}, order_index)
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  return row ?? null;
+}
+
+export async function getUnitById(sql: Sql, id: string) {
+  const rows = await sql`SELECT * FROM public.units WHERE id = ${id}`;
+  return rows[0] ?? null;
+}
+
+/** units.id -> lessons.unit_id has ON DELETE CASCADE, so this delete alone
+ * removes any lessons (and, transitively, their exercises/attempts) in the
+ * unit — the lesson-count check belongs in service.ts, before calling this,
+ * precisely so that cascade is never silent. */
+export async function deleteUnit(sql: Sql, id: string) {
+  await sql`DELETE FROM public.units WHERE id = ${id}`;
+}
+
+export async function countLessonsInUnit(sql: Sql, unitId: string): Promise<number> {
+  const [row] = await sql<{ count: string }[]>`SELECT count(*)::text AS count FROM public.lessons WHERE unit_id = ${unitId}`;
+  return Number(row!.count);
+}
+
+export type LessonInput = {
+  unitId: string;
+  title: string;
+  lessonType: string;
+  summary?: string;
+  xpReward: number;
+  orderIndex: number;
+};
+
+// Derive a URL-safe slug from the title, then disambiguate with a short
+// random suffix rather than checking for collisions — same "cheap enough to
+// not bother with a retry loop" trust level as classes/service.ts's invite
+// codes, and the (unit_id, slug) UNIQUE constraint is the actual backstop.
+function slugify(title: string): string {
+  const base = title
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  const suffix = Math.random().toString(36).slice(2, 7);
+  return `${base || "lesson"}-${suffix}`;
+}
+
+export async function insertLesson(sql: Sql, input: LessonInput) {
+  const [row] = await sql`
+    INSERT INTO public.lessons (unit_id, slug, title, summary, xp_reward, order_index, lesson_type, content, is_published)
+    VALUES (
+      ${input.unitId}, ${slugify(input.title)}, ${input.title}, ${input.summary ?? null},
+      ${input.xpReward}, ${input.orderIndex}, ${input.lessonType}::public.lesson_type, '{}'::jsonb, false
+    )
+    RETURNING *
+  `;
+  return row!;
+}
+
+/** lessons.id -> lesson_attempts.lesson_id has ON DELETE CASCADE — the
+ * attempts-exist check belongs in service.ts, before calling this, so a
+ * lesson with real student history is never deleted silently. */
+export async function deleteLesson(sql: Sql, id: string) {
+  await sql`DELETE FROM public.lessons WHERE id = ${id}`;
+}
+
+export async function countLessonAttemptsForLesson(sql: Sql, lessonId: string): Promise<number> {
+  const [row] = await sql<{ count: string }[]>`SELECT count(*)::text AS count FROM public.lesson_attempts WHERE lesson_id = ${lessonId}`;
+  return Number(row!.count);
 }
 
 // Only ever serves content_status='published' rows to students — draft/

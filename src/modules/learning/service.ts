@@ -2,7 +2,8 @@ import type { Sql } from "postgres";
 import * as repo from "./repository.js";
 import { awardActivity } from "../gamification/service.js";
 import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
-import { NotFoundError, ValidationError } from "../../lib/errors.js";
+import { NotFoundError, ValidationError, ConflictError } from "../../lib/errors.js";
+import { logAdminAction } from "../../lib/audit.js";
 
 // Matches the "3 aulas / semana" free-plan copy shown at onboarding/checkout.
 const FREE_WEEKLY_LESSON_LIMIT = 3;
@@ -66,6 +67,76 @@ export async function updateLessonAdmin(sql: Sql, id: string, patch: repo.Lesson
   const updated = await repo.updateLesson(sql, id, patch);
   if (!updated) throw new NotFoundError("Lesson not found");
   return updated;
+}
+
+export async function createUnitAdmin(sql: Sql, input: repo.UnitInput) {
+  return repo.insertUnit(sql, input);
+}
+
+export async function updateUnitAdmin(sql: Sql, id: string, patch: repo.UnitPatch) {
+  const updated = await repo.updateUnit(sql, id, patch);
+  if (!updated) throw new NotFoundError("Unit not found");
+  return updated;
+}
+
+/** `force` bypasses the lesson-count guard (the DB's ON DELETE CASCADE from
+ * lessons.unit_id still does the actual removal either way) — without it, a
+ * unit that already has lessons refuses to delete so the caller has to
+ * consciously opt into losing them. */
+export async function deleteUnitAdmin(sql: Sql, id: string, force: boolean, adminUserId: string) {
+  const unit = await repo.getUnitById(sql, id);
+  if (!unit) throw new NotFoundError("Unit not found");
+  let lessonCount = 0;
+  if (!force) {
+    lessonCount = await repo.countLessonsInUnit(sql, id);
+    if (lessonCount > 0) {
+      throw new ConflictError(
+        `Unit has ${lessonCount} lesson(s) — delete them first, or retry with force=true to delete the unit and all its lessons.`,
+      );
+    }
+  }
+  await repo.deleteUnit(sql, id);
+  await logAdminAction(sql, {
+    adminUserId,
+    action: "unit.delete",
+    entity: "unit",
+    entityId: id,
+    severity: "warning",
+    metadata: { title: unit.title, forced: force, lessonCountAtDeletion: lessonCount },
+  });
+}
+
+export async function createLessonAdmin(sql: Sql, input: repo.LessonInput) {
+  const unit = await repo.getUnitById(sql, input.unitId);
+  if (!unit) throw new NotFoundError("Unit not found");
+  return repo.insertLesson(sql, input);
+}
+
+/** `force` bypasses the attempts-exist guard (real student history) — see
+ * deleteUnitAdmin for the same shape of decision one level up. Preferring
+ * "unpublish" over "delete" is the guidance surfaced to the caller, not
+ * enforced here: an admin who really means to delete can still force it. */
+export async function deleteLessonAdmin(sql: Sql, id: string, force: boolean, adminUserId: string) {
+  const lesson = await repo.getLessonByIdAdmin(sql, id);
+  if (!lesson) throw new NotFoundError("Lesson not found");
+  let attemptCount = 0;
+  if (!force) {
+    attemptCount = await repo.countLessonAttemptsForLesson(sql, id);
+    if (attemptCount > 0) {
+      throw new ConflictError(
+        `Lesson has ${attemptCount} recorded attempt(s) — unpublish it instead, or retry with force=true to delete it and that history.`,
+      );
+    }
+  }
+  await repo.deleteLesson(sql, id);
+  await logAdminAction(sql, {
+    adminUserId,
+    action: "lesson.delete",
+    entity: "lesson",
+    entityId: id,
+    severity: "warning",
+    metadata: { title: lesson.title, forced: force, attemptCountAtDeletion: attemptCount },
+  });
 }
 
 export async function listExercisesAdmin(sql: Sql, lessonId: string, status?: string) {
