@@ -83,14 +83,10 @@ export async function updateLessonAdmin(sql: Sql, id: string, patch: repo.Lesson
 
 export async function createUnitAdmin(sql: Sql, input: repo.UnitInput & { ageGroupIds?: string[] }) {
   const unit = await repo.insertUnit(sql, input);
-  // Falls back to the age band mapped from the course's own CEFR level so a
-  // unit is never created invisible in the "by age" browser — see
-  // getDefaultAgeGroupIdForCourse's own docstring for the mapping rule.
-  let ageGroupIds = input.ageGroupIds;
-  if (!ageGroupIds) {
-    const defaultId = await repo.getDefaultAgeGroupIdForCourse(sql, input.courseId);
-    ageGroupIds = defaultId ? [defaultId] : [];
-  }
+  // Defaults to every age band, not just one mapped from the course's CEFR
+  // level — see getAllAgeGroupIds's own docstring for why a 1:1 mapping is
+  // wrong here.
+  const ageGroupIds = input.ageGroupIds ?? (await repo.getAllAgeGroupIds(sql));
   await repo.setUnitAgeGroups(sql, unit.id, ageGroupIds);
   return { ...unit, age_group_ids: ageGroupIds };
 }

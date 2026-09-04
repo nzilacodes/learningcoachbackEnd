@@ -175,17 +175,21 @@ export async function listAgeGroups(sql: Sql): Promise<AgeGroupRow[]> {
  * (A1→3–5 ... C2→18+) — same rule the seed migration bootstrapped existing
  * units with. Used as the default tag for a unit created without explicit
  * ageGroupIds, so nothing is ever invisible in the "by age" browser. */
-export async function getDefaultAgeGroupIdForCourse(sql: Sql, courseId: string): Promise<string | null> {
-  const rows = await sql<{ id: string }[]>`
-    SELECT ag.id
-    FROM public.courses c
-    JOIN public.age_groups ag ON ag.order_index = CASE c.level
-      WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2
-      WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5
-    END
-    WHERE c.id = ${courseId}
-  `;
-  return rows[0]?.id ?? null;
+/**
+ * Default tags for a unit created without explicit ageGroupIds: ALL age
+ * bands, not just the one that happens to line up with the course's CEFR
+ * level. Every age band should be able to reach every level (see section 2
+ * of the architecture doc — "6-8 anos + A1, 18+ + A1... todos são A1, mas
+ * com experiências pedagógicas completamente diferentes"); there's only one
+ * authored version of each unit today, so "available to every age band" is
+ * the honest default until an admin narrows it down for real age-specific
+ * content. (Previously mapped 1:1 by level — that was the exact rigid
+ * mapping the doc warns against; corrected via migration
+ * 20260904140000_age_groups_all_levels.sql for existing data.)
+ */
+export async function getAllAgeGroupIds(sql: Sql): Promise<string[]> {
+  const rows = await sql<{ id: string }[]>`SELECT id FROM public.age_groups`;
+  return rows.map((r) => r.id);
 }
 
 export async function setUnitAgeGroups(sql: Sql, unitId: string, ageGroupIds: string[]) {
