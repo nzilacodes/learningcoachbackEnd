@@ -3,6 +3,7 @@ import { requireAuth } from "../../plugins/auth.js";
 import { requireRole } from "../../plugins/roles.js";
 import {
   issueCertificateSchema,
+  issueCertificateAdminSchema,
   verifyCertificateParamsSchema,
   certificateIdParamsSchema,
   listCertificatesQuerySchema,
@@ -33,6 +34,12 @@ export default async function certificatesRoutes(fastify: FastifyInstance) {
   fastify.get("/admin/certificates", { preHandler: adminOnly }, async (request) => {
     const params = listCertificatesQuerySchema.parse(request.query);
     return service.listCertificatesAdmin(request.server.sql, params);
+  });
+
+  fastify.post("/admin/certificates", { preHandler: adminOnly }, async (request, reply) => {
+    const input = issueCertificateAdminSchema.parse(request.body);
+    const cert = await service.issueCertificateAdmin(request.server.sql, request.userId, input);
+    return reply.status(201).send(cert);
   });
 
   fastify.post("/admin/certificates/:id/revoke", { preHandler: adminOnly }, async (request) => {

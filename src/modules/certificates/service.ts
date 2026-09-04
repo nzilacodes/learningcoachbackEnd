@@ -1,7 +1,7 @@
 import type { Sql } from "postgres";
 import type { CefrLevel } from "../../lib/cefr.js";
 import { hasActiveSubscription, PaymentRequiredError } from "../../lib/subscription.js";
-import { ForbiddenError, NotFoundError } from "../../lib/errors.js";
+import { ForbiddenError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { logAdminAction } from "../../lib/audit.js";
 import * as repo from "./repository.js";
 
@@ -45,6 +45,59 @@ export async function issueCertificate(
   // the findExistingCertificate check above and this insert — read back the
   // certificate it just issued instead of treating this as a failure.
   return inserted ?? (await repo.findExistingCertificate(sql, userId, input.level));
+}
+
+/**
+ * Admin-initiated issuance (the Currículo/Certificados admin panel's "Emitir
+ * certificado" dialog) — bypasses the subscription gate self-issue enforces
+ * (an admin deliberately crediting a learner shouldn't be blocked by billing
+ * state) but still needs a score from somewhere: either supplied directly by
+ * the admin, or read off the learner's own passed exam attempt for that
+ * level, same as self-issue. Idempotent on (user_id, level) exactly like
+ * issueCertificate above — re-running this for a learner who already has the
+ * certificate just returns the existing row instead of erroring.
+ */
+export async function issueCertificateAdmin(
+  sql: Sql,
+  adminUserId: string,
+  input: { userId: string; level: CefrLevel; score?: number; courseId?: string; courseTitle?: string },
+) {
+  const existing = await repo.findExistingCertificate(sql, input.userId, input.level);
+  if (existing) return existing;
+
+  let score = input.score;
+  if (score == null) {
+    const passedAttempt = await repo.findPassedExamAttempt(sql, input.userId, input.level);
+    if (!passedAttempt) {
+      throw new ValidationError(
+        `No score given and no passed exam on record for level ${input.level} — provide a score to issue manually.`,
+      );
+    }
+    score = passedAttempt.score;
+  }
+
+  const fullName = await repo.getProfileName(sql, input.userId);
+  const inserted = await repo.insertCertificate(sql, {
+    userId: input.userId,
+    level: input.level,
+    score,
+    courseId: input.courseId,
+    courseTitle: input.courseTitle,
+    fullName,
+  });
+  const cert = inserted ?? (await repo.findExistingCertificate(sql, input.userId, input.level));
+
+  if (inserted) {
+    await logAdminAction(sql, {
+      adminUserId,
+      action: "certificate.issue",
+      entity: "certificate",
+      entityId: inserted.id as string,
+      severity: "info",
+      metadata: { userId: input.userId, level: input.level, score },
+    });
+  }
+  return cert;
 }
 
 export async function listMyCertificates(sql: Sql, userId: string) {
