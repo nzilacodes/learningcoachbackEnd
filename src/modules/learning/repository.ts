@@ -5,11 +5,30 @@ export async function listCourses(sql: Sql) {
 }
 
 export async function listUnits(sql: Sql) {
-  return sql`SELECT * FROM public.units ORDER BY order_index`;
+  return sql`
+    SELECT u.*,
+           COALESCE(array_agg(ag.code) FILTER (WHERE ag.code IS NOT NULL), '{}') AS age_group_codes
+    FROM public.units u
+    LEFT JOIN public.unit_age_groups uag ON uag.unit_id = u.id
+    LEFT JOIN public.age_groups ag ON ag.id = uag.age_group_id
+    GROUP BY u.id
+    ORDER BY u.order_index
+  `;
 }
 
 export async function listLessons(sql: Sql) {
   return sql`SELECT * FROM public.lessons WHERE is_published = true ORDER BY order_index`;
+}
+
+/** Admin variant of listCourses/listLessons — no is_published filter, so
+ * drafts stay visible to the admin curriculum browser instead of only ever
+ * showing what students can already see. */
+export async function listCoursesAdmin(sql: Sql) {
+  return sql`SELECT * FROM public.courses ORDER BY order_index`;
+}
+
+export async function listLessonsAdmin(sql: Sql) {
+  return sql`SELECT * FROM public.lessons ORDER BY order_index`;
 }
 
 export async function getProgress(sql: Sql, userId: string) {
@@ -86,12 +105,106 @@ export async function getUnitById(sql: Sql, id: string) {
   return rows[0] ?? null;
 }
 
+export type AgeGroupRow = {
+  id: string;
+  code: string;
+  label: string;
+  min_age: number;
+  max_age: number | null;
+  order_index: number;
+  unit_count: number;
+  lesson_count: number;
+  published_lesson_count: number;
+};
+
+// lesson_count/published_lesson_count query every lesson regardless of
+// is_published (unlike GET /v1/courses's public listLessons, which only ever
+// returns published rows) — the admin "% concluído" bar needs the true
+// denominator, not just what students can currently see.
+export async function listAgeGroups(sql: Sql): Promise<AgeGroupRow[]> {
+  return sql<AgeGroupRow[]>`
+    SELECT ag.id, ag.code, ag.label, ag.min_age, ag.max_age, ag.order_index,
+           count(DISTINCT uag.unit_id)::int AS unit_count,
+           count(l.id)::int AS lesson_count,
+           count(l.id) FILTER (WHERE l.is_published)::int AS published_lesson_count
+    FROM public.age_groups ag
+    LEFT JOIN public.unit_age_groups uag ON uag.age_group_id = ag.id
+    LEFT JOIN public.lessons l ON l.unit_id = uag.unit_id
+    GROUP BY ag.id
+    ORDER BY ag.order_index
+  `;
+}
+
+/** The single age band that maps sequentially from a course's CEFR level
+ * (A1→3–5 ... C2→18+) — same rule the seed migration bootstrapped existing
+ * units with. Used as the default tag for a unit created without explicit
+ * ageGroupIds, so nothing is ever invisible in the "by age" browser. */
+export async function getDefaultAgeGroupIdForCourse(sql: Sql, courseId: string): Promise<string | null> {
+  const rows = await sql<{ id: string }[]>`
+    SELECT ag.id
+    FROM public.courses c
+    JOIN public.age_groups ag ON ag.order_index = CASE c.level
+      WHEN 'A1' THEN 0 WHEN 'A2' THEN 1 WHEN 'B1' THEN 2
+      WHEN 'B2' THEN 3 WHEN 'C1' THEN 4 WHEN 'C2' THEN 5
+    END
+    WHERE c.id = ${courseId}
+  `;
+  return rows[0]?.id ?? null;
+}
+
+export async function setUnitAgeGroups(sql: Sql, unitId: string, ageGroupIds: string[]) {
+  await sql.begin(async (tx) => {
+    await tx`DELETE FROM public.unit_age_groups WHERE unit_id = ${unitId}`;
+    for (const ageGroupId of ageGroupIds) {
+      await tx`INSERT INTO public.unit_age_groups (unit_id, age_group_id) VALUES (${unitId}, ${ageGroupId})`;
+    }
+  });
+}
+
 /** units.id -> lessons.unit_id has ON DELETE CASCADE, so this delete alone
  * removes any lessons (and, transitively, their exercises/attempts) in the
  * unit — the lesson-count check belongs in service.ts, before calling this,
  * precisely so that cascade is never silent. */
 export async function deleteUnit(sql: Sql, id: string) {
   await sql`DELETE FROM public.units WHERE id = ${id}`;
+}
+
+/**
+ * Clones a unit (new order_index, appended after the last unit in the same
+ * course) plus every one of its lessons (content, xp, type — everything
+ * except exercises and attempt history) and the unit's age-group tags. The
+ * copy's lessons land unpublished regardless of the originals' state: a
+ * duplicate exists for the admin to adapt, not to go live identically.
+ */
+export async function duplicateUnit(sql: Sql, sourceUnitId: string) {
+  return sql.begin(async (tx) => {
+    const [source] = await tx`SELECT * FROM public.units WHERE id = ${sourceUnitId}`;
+    if (!source) return null;
+
+    const [{ next_order }] = await tx<{ next_order: number }[]>`
+      SELECT COALESCE(MAX(order_index) + 1, 0) AS next_order
+      FROM public.units WHERE course_id = ${source.course_id}
+    `;
+    const [newUnit] = await tx`
+      INSERT INTO public.units (course_id, title, description, order_index)
+      VALUES (${source.course_id}, ${source.title + " (cópia)"}, ${source.description}, ${next_order})
+      RETURNING *
+    `;
+
+    await tx`
+      INSERT INTO public.unit_age_groups (unit_id, age_group_id)
+      SELECT ${newUnit!.id}, age_group_id FROM public.unit_age_groups WHERE unit_id = ${sourceUnitId}
+    `;
+
+    await tx`
+      INSERT INTO public.lessons
+        (unit_id, slug, title, summary, content, duration_min, xp_reward, order_index, is_published, lesson_type)
+      SELECT ${newUnit!.id}, slug, title, summary, content, duration_min, xp_reward, order_index, false, lesson_type
+      FROM public.lessons WHERE unit_id = ${sourceUnitId}
+    `;
+
+    return newUnit!;
+  });
 }
 
 export async function countLessonsInUnit(sql: Sql, unitId: string): Promise<number> {

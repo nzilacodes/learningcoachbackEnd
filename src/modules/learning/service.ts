@@ -44,6 +44,18 @@ export async function getCurriculum(sql: Sql) {
   return { courses, units, lessons };
 }
 
+/** Admin curriculum browser's data source — unlike getCurriculum (public,
+ * student-facing), includes draft/unpublished courses and lessons so an
+ * admin can see and edit content before it goes live. */
+export async function getCurriculumAdmin(sql: Sql) {
+  const [courses, units, lessons] = await Promise.all([
+    repo.listCoursesAdmin(sql),
+    repo.listUnits(sql),
+    repo.listLessonsAdmin(sql),
+  ]);
+  return { courses, units, lessons };
+}
+
 export const getProgress = repo.getProgress;
 
 export async function getLessonDetail(sql: Sql, id: string, authenticated: boolean) {
@@ -69,14 +81,31 @@ export async function updateLessonAdmin(sql: Sql, id: string, patch: repo.Lesson
   return updated;
 }
 
-export async function createUnitAdmin(sql: Sql, input: repo.UnitInput) {
-  return repo.insertUnit(sql, input);
+export async function createUnitAdmin(sql: Sql, input: repo.UnitInput & { ageGroupIds?: string[] }) {
+  const unit = await repo.insertUnit(sql, input);
+  // Falls back to the age band mapped from the course's own CEFR level so a
+  // unit is never created invisible in the "by age" browser — see
+  // getDefaultAgeGroupIdForCourse's own docstring for the mapping rule.
+  const ageGroupIds =
+    input.ageGroupIds ??
+    (await repo.getDefaultAgeGroupIdForCourse(sql, input.courseId).then((id) => (id ? [id] : [])));
+  await repo.setUnitAgeGroups(sql, unit.id, ageGroupIds);
+  return { ...unit, age_group_ids: ageGroupIds };
 }
 
-export async function updateUnitAdmin(sql: Sql, id: string, patch: repo.UnitPatch) {
+export async function updateUnitAdmin(sql: Sql, id: string, patch: repo.UnitPatch & { ageGroupIds?: string[] }) {
   const updated = await repo.updateUnit(sql, id, patch);
   if (!updated) throw new NotFoundError("Unit not found");
+  if (patch.ageGroupIds) await repo.setUnitAgeGroups(sql, id, patch.ageGroupIds);
   return updated;
+}
+
+export const listAgeGroups = repo.listAgeGroups;
+
+export async function duplicateUnitAdmin(sql: Sql, unitId: string) {
+  const unit = await repo.duplicateUnit(sql, unitId);
+  if (!unit) throw new NotFoundError("Unit not found");
+  return unit;
 }
 
 /** `force` bypasses the lesson-count guard (the DB's ON DELETE CASCADE from

@@ -51,12 +51,18 @@ export const createUnitSchema = z.object({
   title: z.string().trim().min(1).max(300),
   description: z.string().trim().max(1000).optional(),
   orderIndex: z.number().int().nonnegative().default(0),
+  // Omitted -> service defaults to the age band that maps sequentially from
+  // the course's CEFR level (same bootstrap rule as the seed migration), so
+  // a freshly created unit is never invisible in the "by age" browser.
+  ageGroupIds: z.array(z.string().uuid()).optional(),
 });
 
 export const updateUnitSchema = z.object({
   title: z.string().trim().min(1).max(300).optional(),
   description: z.string().trim().max(1000).optional(),
   orderIndex: z.number().int().nonnegative().optional(),
+  // Full replace, not merge — same convention as updateUserSchema's `roles`.
+  ageGroupIds: z.array(z.string().uuid()).optional(),
 });
 
 export const createLessonSchema = z.object({

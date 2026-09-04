@@ -28,6 +28,10 @@ export default async function learningRoutes(fastify: FastifyInstance) {
     return service.getCurriculum(request.server.sql);
   });
 
+  fastify.get("/admin/curriculum", { preHandler: adminOnly }, async (request) => {
+    return service.getCurriculumAdmin(request.server.sql);
+  });
+
   fastify.get("/me/progress", { preHandler: requireAuth }, async (request) => {
     return service.getProgress(request.server.sql, request.userId);
   });
@@ -68,6 +72,16 @@ export default async function learningRoutes(fastify: FastifyInstance) {
     const { force } = deleteWithForceQuerySchema.parse(request.query);
     await service.deleteUnitAdmin(request.server.sql, id, force, request.userId);
     return reply.status(204).send();
+  });
+
+  fastify.post("/admin/units/:id/duplicate", { preHandler: adminOnly }, async (request, reply) => {
+    const { id } = unitIdParamsSchema.parse(request.params);
+    const unit = await service.duplicateUnitAdmin(request.server.sql, id);
+    return reply.status(201).send(unit);
+  });
+
+  fastify.get("/admin/age-groups", { preHandler: adminOnly }, async (request) => {
+    return service.listAgeGroups(request.server.sql);
   });
 
   fastify.post("/admin/lessons", { preHandler: adminOnly }, async (request, reply) => {
