@@ -46,7 +46,35 @@ jobs:
         run: |
           SSH="ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
           $SSH "mkdir -p $APP_DIR/releases/$RELEASE"
-          rsync -az -e "ssh -i ~/.ssh/deploy_key" dist package.json package-lock.json node_modules "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:$APP_DIR/releases/$RELEASE/"
+          # supabase/migrations is included so db/migrate.ts (next step) has
+          # the .sql files to read — it was missing here before, which is why
+          # migrations only ever ran from someone's local checkout by hand.
+          rsync -az -e "ssh -i ~/.ssh/deploy_key" dist package.json package-lock.json node_modules supabase "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:$APP_DIR/releases/$RELEASE/"
+
+      - name: Run database migrations
+        # Deliberately before activation: db/migrate.ts (see that file — it
+        # tracks applied files in public.schema_migrations, skips ones already
+        # run, wraps each in its own transaction) runs against the *new*
+        # release's code, but nothing is switched over or restarted yet — a
+        # failing migration just fails the deploy here, and the currently
+        # running (old) release is untouched, no rollback needed.
+        #
+        # This step is the fix for a real recurring incident class: this repo
+        # had several migration files that sat applied-in-the-repo but never
+        # applied-in-production for days (skills, certificates revocation,
+        # the pgcrypto fix), each causing its own wave of Sentry errors,
+        # because nothing in this pipeline ever actually ran them before now.
+        #
+        # --env-file (Node 20.6+) reads the same EnvironmentFile systemd uses
+        # for the running service (see learningcoachbackend.service), so this
+        # connects with the exact same DATABASE_URL — no shell re-quoting of
+        # secrets that may contain characters like $ or spaces.
+        env:
+          RELEASE: ${{ github.sha }}
+          APP_DIR: /home/learningcoach/apps/learningcoachbackend
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
+          $SSH "cd $APP_DIR/releases/$RELEASE && node --env-file=$APP_DIR/shared/.env dist/db/migrate.js"
 
       - name: Activate release, health-check, and roll back on failure
         env:
