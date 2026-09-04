@@ -41,3 +41,10 @@ export async function getLessonPerformance(sql: Sql) {
   const rows = await repo.getLessonPerformance(sql);
   return rows.map((r) => ({ ...r, avg_score: round1(r.avg_score), pass_rate: round1(r.pass_rate) }));
 }
+
+export async function getStudentSkillMastery(sql: Sql, userId: string) {
+  const rows = await repo.getStudentSkillMastery(sql, userId);
+  return rows.map((r) => ({ ...r, avg_score: round1(r.avg_score), pass_rate: round1(r.pass_rate) }));
+}
+
+export const getStudentRecommendation = repo.getStudentRecommendation;

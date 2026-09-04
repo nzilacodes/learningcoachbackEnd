@@ -16,6 +16,20 @@ import * as service from "./service.js";
 export default async function adminRoutes(fastify: FastifyInstance) {
   const adminOnly = [requireAuth, requireRole("admin")];
 
+  // Student-facing mirrors of the same mastery/recommendation engine used by
+  // the admin performance panel — section 10/17 of the architecture doc
+  // ("o que estudar agora"). Deliberately not wired into the live student
+  // dashboard yet: that UI has real paying users and no way to verify a
+  // change to it in this environment, so it's exposed here, ready, rather
+  // than changed blind.
+  fastify.get("/me/skill-mastery", { preHandler: requireAuth }, async (request) => {
+    return service.getStudentSkillMastery(request.server.sql, request.userId);
+  });
+
+  fastify.get("/me/recommendation", { preHandler: requireAuth }, async (request) => {
+    return service.getStudentRecommendation(request.server.sql, request.userId);
+  });
+
   fastify.get("/admin/analytics", { preHandler: adminOnly }, async (request) => {
     const { days } = analyticsQuerySchema.parse(request.query);
     return service.getAnalytics(request.server.sql, days);
@@ -72,4 +86,18 @@ export default async function adminRoutes(fastify: FastifyInstance) {
   fastify.get("/admin/performance/lessons", { preHandler: adminOnly }, async (request) => {
     return service.getLessonPerformance(request.server.sql);
   });
+
+  fastify.get("/admin/performance/students/:id/mastery", { preHandler: adminOnly }, async (request) => {
+    const { id } = studentIdParamsSchema.parse(request.params);
+    return service.getStudentSkillMastery(request.server.sql, id);
+  });
+
+  fastify.get(
+    "/admin/performance/students/:id/recommendation",
+    { preHandler: adminOnly },
+    async (request) => {
+      const { id } = studentIdParamsSchema.parse(request.params);
+      return service.getStudentRecommendation(request.server.sql, id);
+    },
+  );
 }

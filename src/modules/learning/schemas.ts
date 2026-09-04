@@ -25,6 +25,18 @@ export const updateLessonSchema = z.object({
   xpReward: z.number().int().nonnegative().max(1000).optional(),
   isPublished: z.boolean().optional(),
   orderIndex: z.number().int().nonnegative().optional(),
+  skillId: z.string().uuid().optional(),
+  difficulty: z.number().int().min(1).max(5).optional(),
+  learningObjective: z.string().trim().max(500).optional(),
+});
+
+export const lessonPrerequisiteSchema = z.object({
+  requiresLessonId: z.string().uuid(),
+});
+
+export const lessonPrerequisiteParamsSchema = z.object({
+  id: z.string().uuid(),
+  requiresLessonId: z.string().uuid(),
 });
 
 // Mirrors public.lesson_type (see migrations/20260705145641_...sql) exactly —

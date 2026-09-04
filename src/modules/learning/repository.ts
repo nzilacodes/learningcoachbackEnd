@@ -57,6 +57,9 @@ export type LessonPatch = {
   xpReward?: number;
   isPublished?: boolean;
   orderIndex?: number;
+  skillId?: string;
+  difficulty?: number;
+  learningObjective?: string;
 };
 
 export async function updateLesson(sql: Sql, id: string, patch: LessonPatch) {
@@ -68,11 +71,44 @@ export async function updateLesson(sql: Sql, id: string, patch: LessonPatch) {
       duration_min = COALESCE(${patch.durationMin ?? null}, duration_min),
       xp_reward = COALESCE(${patch.xpReward ?? null}, xp_reward),
       is_published = COALESCE(${patch.isPublished ?? null}, is_published),
-      order_index = COALESCE(${patch.orderIndex ?? null}, order_index)
+      order_index = COALESCE(${patch.orderIndex ?? null}, order_index),
+      skill_id = COALESCE(${patch.skillId ?? null}, skill_id),
+      difficulty = COALESCE(${patch.difficulty ?? null}, difficulty),
+      learning_objective = COALESCE(${patch.learningObjective ?? null}, learning_objective)
     WHERE id = ${id}
     RETURNING *
   `;
   return row ?? null;
+}
+
+export type SkillRow = { id: string; code: string; label: string; order_index: number };
+
+export async function listSkills(sql: Sql): Promise<SkillRow[]> {
+  return sql<SkillRow[]>`SELECT id, code, label, order_index FROM public.skills ORDER BY order_index`;
+}
+
+export async function listPrerequisites(sql: Sql, lessonId: string) {
+  return sql`
+    SELECT cp.requires_lesson_id, l.title, l.slug
+    FROM public.content_prerequisites cp
+    JOIN public.lessons l ON l.id = cp.requires_lesson_id
+    WHERE cp.lesson_id = ${lessonId}
+  `;
+}
+
+export async function addPrerequisite(sql: Sql, lessonId: string, requiresLessonId: string) {
+  await sql`
+    INSERT INTO public.content_prerequisites (lesson_id, requires_lesson_id)
+    VALUES (${lessonId}, ${requiresLessonId})
+    ON CONFLICT DO NOTHING
+  `;
+}
+
+export async function removePrerequisite(sql: Sql, lessonId: string, requiresLessonId: string) {
+  await sql`
+    DELETE FROM public.content_prerequisites
+    WHERE lesson_id = ${lessonId} AND requires_lesson_id = ${requiresLessonId}
+  `;
 }
 
 export type UnitInput = { courseId: string; title: string; description?: string; orderIndex: number };

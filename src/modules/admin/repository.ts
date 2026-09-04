@@ -251,6 +251,95 @@ export type LessonPerformanceRow = {
   pass_rate: number | null;
 };
 
+export type SkillMasteryRow = {
+  id: string;
+  code: string;
+  label: string;
+  order_index: number;
+  attempts: number;
+  avg_score: number | null;
+  pass_rate: number | null;
+};
+
+/** Section 7 of the architecture doc — mastery broken down per competency,
+ * not one blended percentage, so "strong in Reading, weak in Speaking" is
+ * something the system can actually see (and, via getStudentRecommendation
+ * below, act on). */
+export async function getStudentSkillMastery(sql: Sql, userId: string): Promise<SkillMasteryRow[]> {
+  return sql<SkillMasteryRow[]>`
+    SELECT s.id, s.code, s.label, s.order_index,
+           count(la.id)::int AS attempts,
+           AVG(la.score) AS avg_score,
+           AVG(la.passed::int) * 100 AS pass_rate
+    FROM public.skills s
+    LEFT JOIN public.lessons l ON l.skill_id = s.id
+    LEFT JOIN public.lesson_attempts la ON la.lesson_id = l.id AND la.user_id = ${userId}
+    GROUP BY s.id
+    ORDER BY s.order_index
+  `;
+}
+
+export type RecommendationRow = {
+  lesson_id: string;
+  lesson_title: string;
+  lesson_type: string;
+  level: string;
+  skill_code: string;
+  skill_label: string;
+  reason: "weak_skill" | "no_attempts_yet";
+};
+
+/**
+ * Section 17 — weakest-skill-first recommendation. A student with no
+ * attempts anywhere yet gets a level-appropriate vocabulary starting point
+ * instead (reason: "no_attempts_yet") rather than an empty result.
+ */
+export async function getStudentRecommendation(sql: Sql, userId: string): Promise<RecommendationRow | null> {
+  const [weakest] = await sql<{ id: string; code: string; label: string }[]>`
+    SELECT s.id, s.code, s.label
+    FROM public.skills s
+    JOIN public.lessons l ON l.skill_id = s.id
+    JOIN public.lesson_attempts la ON la.lesson_id = l.id AND la.user_id = ${userId}
+    GROUP BY s.id, s.code, s.label
+    HAVING count(*) > 0
+    ORDER BY AVG(la.score) ASC
+    LIMIT 1
+  `;
+  const reason: RecommendationRow["reason"] = weakest ? "weak_skill" : "no_attempts_yet";
+  const skillCode = weakest?.code ?? "vocabulary";
+
+  const [lesson] = await sql<
+    { id: string; title: string; lesson_type: string; level: string; skill_code: string; skill_label: string }[]
+  >`
+    SELECT l.id, l.title, l.lesson_type, c.level::text AS level, s.code AS skill_code, s.label AS skill_label
+    FROM public.lessons l
+    JOIN public.units u ON u.id = l.unit_id
+    JOIN public.courses c ON c.id = u.course_id
+    JOIN public.skills s ON s.id = l.skill_id
+    JOIN public.profiles p ON p.id = ${userId}
+    WHERE s.code = ${skillCode}
+      AND l.is_published = true
+      AND c.level::text = COALESCE(p.cefr_level, 'A1')
+      AND NOT EXISTS (
+        SELECT 1 FROM public.lesson_attempts la2
+        WHERE la2.lesson_id = l.id AND la2.user_id = ${userId} AND la2.passed = true
+      )
+    ORDER BY l.difficulty ASC, l.order_index ASC
+    LIMIT 1
+  `;
+  if (!lesson) return null;
+
+  return {
+    lesson_id: lesson.id,
+    lesson_title: lesson.title,
+    lesson_type: lesson.lesson_type,
+    level: lesson.level,
+    skill_code: lesson.skill_code,
+    skill_label: lesson.skill_label,
+    reason,
+  };
+}
+
 export async function getLessonPerformance(sql: Sql): Promise<LessonPerformanceRow[]> {
   return sql<LessonPerformanceRow[]>`
     SELECT lesson_id, count(*)::int AS attempts, AVG(score) AS avg_score, AVG(passed::int) * 100 AS pass_rate

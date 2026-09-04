@@ -18,6 +18,8 @@ import {
   updateUnitSchema,
   createLessonSchema,
   deleteWithForceQuerySchema,
+  lessonPrerequisiteSchema,
+  lessonPrerequisiteParamsSchema,
 } from "./schemas.js";
 import * as service from "./service.js";
 
@@ -83,6 +85,32 @@ export default async function learningRoutes(fastify: FastifyInstance) {
   fastify.get("/admin/age-groups", { preHandler: adminOnly }, async (request) => {
     return service.listAgeGroups(request.server.sql);
   });
+
+  fastify.get("/admin/skills", { preHandler: adminOnly }, async (request) => {
+    return service.listSkills(request.server.sql);
+  });
+
+  fastify.get("/admin/lessons/:id/prerequisites", { preHandler: adminOnly }, async (request) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    return service.listPrerequisitesAdmin(request.server.sql, id);
+  });
+
+  fastify.post("/admin/lessons/:id/prerequisites", { preHandler: adminOnly }, async (request, reply) => {
+    const { id } = lessonIdParamsSchema.parse(request.params);
+    const { requiresLessonId } = lessonPrerequisiteSchema.parse(request.body);
+    await service.addPrerequisiteAdmin(request.server.sql, id, requiresLessonId);
+    return reply.status(204).send();
+  });
+
+  fastify.delete(
+    "/admin/lessons/:id/prerequisites/:requiresLessonId",
+    { preHandler: adminOnly },
+    async (request, reply) => {
+      const { id, requiresLessonId } = lessonPrerequisiteParamsSchema.parse(request.params);
+      await service.removePrerequisiteAdmin(request.server.sql, id, requiresLessonId);
+      return reply.status(204).send();
+    },
+  );
 
   fastify.post("/admin/lessons", { preHandler: adminOnly }, async (request, reply) => {
     const input = createLessonSchema.parse(request.body);

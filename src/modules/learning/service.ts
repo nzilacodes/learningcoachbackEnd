@@ -103,6 +103,22 @@ export async function updateUnitAdmin(sql: Sql, id: string, patch: repo.UnitPatc
 }
 
 export const listAgeGroups = repo.listAgeGroups;
+export const listSkills = repo.listSkills;
+
+export async function listPrerequisitesAdmin(sql: Sql, lessonId: string) {
+  return repo.listPrerequisites(sql, lessonId);
+}
+
+export async function addPrerequisiteAdmin(sql: Sql, lessonId: string, requiresLessonId: string) {
+  const lesson = await repo.getLessonByIdAdmin(sql, lessonId);
+  const required = await repo.getLessonByIdAdmin(sql, requiresLessonId);
+  if (!lesson || !required) throw new NotFoundError("Lesson not found");
+  await repo.addPrerequisite(sql, lessonId, requiresLessonId);
+}
+
+export async function removePrerequisiteAdmin(sql: Sql, lessonId: string, requiresLessonId: string) {
+  await repo.removePrerequisite(sql, lessonId, requiresLessonId);
+}
 
 export async function duplicateUnitAdmin(sql: Sql, unitId: string) {
   const unit = await repo.duplicateUnit(sql, unitId);
