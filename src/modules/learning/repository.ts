@@ -181,13 +181,14 @@ export async function duplicateUnit(sql: Sql, sourceUnitId: string) {
     const [source] = await tx`SELECT * FROM public.units WHERE id = ${sourceUnitId}`;
     if (!source) return null;
 
-    const [{ next_order }] = await tx<{ next_order: number }[]>`
+    const [nextOrderRow] = await tx<{ next_order: number }[]>`
       SELECT COALESCE(MAX(order_index) + 1, 0) AS next_order
       FROM public.units WHERE course_id = ${source.course_id}
     `;
+    const nextOrder = nextOrderRow?.next_order ?? 0;
     const [newUnit] = await tx`
       INSERT INTO public.units (course_id, title, description, order_index)
-      VALUES (${source.course_id}, ${source.title + " (cópia)"}, ${source.description}, ${next_order})
+      VALUES (${source.course_id}, ${source.title + " (cópia)"}, ${source.description}, ${nextOrder})
       RETURNING *
     `;
 
